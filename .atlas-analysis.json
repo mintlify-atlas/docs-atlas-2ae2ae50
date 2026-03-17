@@ -1,0 +1,102 @@
+{
+  "projectType": "saas",
+  "projectName": "S-mart",
+  "projectDescription": "A full-stack online store platform with role-based access for customers, sellers, cashiers, and administrators, built with Vue.js 3 and Supabase.",
+  "theme": "almond",
+  "primaryColor": "#848484",
+  "lightColor": "#1f1f1f",
+  "darkColor": "#cdcdcd",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart", "environment-setup"]
+          },
+          {
+            "group": "User Roles",
+            "pages": [
+              "roles/overview",
+              "roles/customer",
+              "roles/seller",
+              "roles/cashier",
+              "roles/administrator"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/store",
+              "features/cart-checkout",
+              "features/payments",
+              "features/inventory",
+              "features/orders",
+              "features/chat",
+              "features/reports"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/frontend",
+              "architecture/state-management",
+              "architecture/routing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Stores",
+            "pages": [
+              "api/auth-store",
+              "api/product-store",
+              "api/cart-store",
+              "api/notification-store",
+              "api/ventas-store"
+            ]
+          },
+          {
+            "group": "Composables",
+            "pages": [
+              "api/use-payment-checkout",
+              "api/use-credit-card-formatters",
+              "api/use-ticket-generator",
+              "api/use-chat",
+              "api/use-role"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Role-based access control with four user roles: Customer, Seller, Cashier, Administrator",
+    "Full product catalog with categories, discounts, and inventory management",
+    "Shopping cart and multi-step checkout flow with card payment support",
+    "Point-of-sale cashier panel for in-store transactions",
+    "Admin dashboard for managing products, categories, and users",
+    "Real-time chat between users",
+    "Sales reports with PDF export (jsPDF + autotable)",
+    "Order tracking and shipment status",
+    "Supabase-powered authentication with password reset",
+    "Cloudinary integration for product image storage"
+  ],
+  "publicApiSurface": [
+    "useAuthStore — inicializarSesion, cerrarSesion, cargarPerfil, crearPerfil",
+    "useProductStore — fetchProducts, fetchCategorias, decreaseStock, increaseStock, updateStockInDB",
+    "useCartStore — cart state and checkout helpers",
+    "useNotificationStore — notification management",
+    "useVentasStore — sales tracking",
+    "usePaymentCheckout — checkout flow composable",
+    "useCreditCardFormatters — card number/expiry formatting",
+    "useTicketGenerator — PDF receipt generation",
+    "useChat — real-time chat composable",
+    "useRole — role-based UI helpers"
+  ]
+}
