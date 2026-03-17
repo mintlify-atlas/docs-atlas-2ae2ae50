@@ -1,0 +1,193 @@
+---
+title: "useCartStore"
+description: "Shopping cart state management for S-mart. Handles item collection, quantity rules, and localStorage persistence across browser sessions."
+---
+
+## Import
+
+```javascript
+import { useCartStore } from '@/stores/cartStore'
+```
+
+## Overview
+
+`useCartStore` manages the client-side shopping cart. It persists its state to `localStorage` automatically so the cart survives page refreshes. All quantity operations respect the `stock` limit of each product.
+
+---
+
+## Types
+
+### `CartItem`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `number` | Unique product ID. |
+| `name` | `string` | Product display name. |
+| `precio` | `number` | Final price applied at the time the item was added (discount-adjusted). |
+| `imagen_url` | `string \| null` | Product image URL. |
+| `cantidad` | `number` | Quantity of this product in the cart. |
+| `stock` | `number` | Available stock at the time the item was added. Caps the maximum `cantidad`. |
+| `precio_venta` | `number` | Original sale price before any discount. |
+| `vendedor_id` | `string` | UUID of the seller who owns this product. |
+
+### `Product` *(input shape for `addProduct`)*
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `number` | Unique product ID. |
+| `nombre` | `string` | Product name. |
+| `precio_descuento` | `number?` | Optional discount price. Takes precedence over `precio_venta` when positive. |
+| `precio_venta` | `number` | Original sale price. |
+| `imagen_url` | `string \| null` | Product image URL. |
+| `stock` | `number?` | Available stock. Treated as `Infinity` when absent. |
+| `vendedor_id` | `string` | UUID of the product's seller. |
+
+---
+
+## State
+
+<ResponseField name="items" type="CartItem[]">
+  The current list of items in the cart. Loaded from `localStorage` immediately when the store is created. Each entry represents one distinct product with its associated quantity.
+</ResponseField>
+
+---
+
+## Computed
+
+<ResponseField name="subtotal" type="number">
+  The running total of the cart calculated as `Σ (item.precio × item.cantidad)`. Reactive — updates automatically when items or quantities change.
+</ResponseField>
+
+<ResponseField name="totalItems" type="number">
+  The total number of individual units in the cart (`Σ item.cantidad`). Use this to display the cart badge count.
+</ResponseField>
+
+---
+
+## Actions
+
+### `addProduct(product, quantity?)`
+
+Adds a product to the cart. If the product already exists, its `cantidad` is incremented. The resulting quantity is capped at the product's available `stock`.
+
+When the product is new to the cart, `precio` is resolved as:
+- `precio_descuento` — when it is a positive number
+- `precio_venta` — otherwise
+
+<ParamField path="product" type="Product" required>
+  The product object to add. Must include at minimum `id`, `nombre`, `precio_venta`, and `vendedor_id`.
+</ParamField>
+
+<ParamField path="quantity" type="number">
+  Number of units to add. Defaults to `1`.
+</ParamField>
+
+**Returns:** `void`
+
+<Note>
+  If `product.stock` is not provided, the quantity is uncapped (`Infinity`). Always pass `stock` from the product store to enforce inventory limits.
+</Note>
+
+---
+
+### `updateQuantity(productId, newQuantity)`
+
+Sets the quantity of a specific cart item to `newQuantity`, capped at the item's `stock`. Calling with `newQuantity <= 0` removes the item from the cart entirely via `removeItem()`.
+
+<ParamField path="productId" type="number" required>
+  The `id` of the cart item to update.
+</ParamField>
+
+<ParamField path="newQuantity" type="number" required>
+  The desired new quantity. Pass `0` or a negative value to remove the item.
+</ParamField>
+
+**Returns:** `void`
+
+---
+
+### `removeItem(productId)`
+
+Removes a single item from the cart by product ID.
+
+<ParamField path="productId" type="number" required>
+  The `id` of the product to remove.
+</ParamField>
+
+**Returns:** `void`
+
+---
+
+### `removeProductsByIds(productIds)`
+
+Removes multiple items from the cart in a single operation. Intended for post-purchase cleanup when only certain items (e.g. those belonging to a specific vendor) need to be removed.
+
+<ParamField path="productIds" type="number[]" required>
+  Array of product IDs to remove. Non-array values are silently ignored.
+</ParamField>
+
+**Returns:** `void`
+
+---
+
+### `clearCart()`
+
+Empties the cart completely and writes the empty state to `localStorage`.
+
+**Returns:** `void`
+
+---
+
+## Persistence
+
+The store reads from `localStorage` under the key `cartItems` on initialisation and writes to it after every mutating action. This is handled internally by the private `loadCartFromStorage()` and `saveCartToStorage()` helpers — no manual persistence calls are required.
+
+---
+
+## Usage Example
+
+```vue
+<script setup>
+import { useCartStore } from '@/stores/cartStore'
+
+const cart = useCartStore()
+
+function handleAddToCart(product) {
+  cart.addProduct(product, 1)
+}
+</script>
+
+<template>
+  <div class="cart-icon">
+    <span class="badge">{{ cart.totalItems }}</span>
+  </div>
+
+  <ul>
+    <li v-for="item in cart.items" :key="item.id">
+      <img :src="item.imagen_url" :alt="item.name" />
+      <span>{{ item.name }}</span>
+      <input
+        type="number"
+        :value="item.cantidad"
+        :max="item.stock"
+        @change="cart.updateQuantity(item.id, +$event.target.value)"
+      />
+      <span>${{ (item.precio * item.cantidad).toFixed(2) }}</span>
+      <button @click="cart.removeItem(item.id)">Remove</button>
+    </li>
+  </ul>
+
+  <p>Subtotal: ${{ cart.subtotal.toFixed(2) }}</p>
+  <button @click="cart.clearCart()">Clear cart</button>
+</template>
+```
+
+```javascript
+// Post-checkout: remove only the purchased items
+import { useCartStore } from '@/stores/cartStore'
+
+const cart = useCartStore()
+const purchasedIds = cart.items.map(i => i.id)
+await completePurchase(cart.items)
+cart.removeProductsByIds(purchasedIds)
+```

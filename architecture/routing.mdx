@@ -1,0 +1,185 @@
+---
+title: "Routing"
+description: "Vue Router 4 configuration, navigation guards, route meta fields, and the full route table for S-mart."
+keywords: ["routing", "vue router", "navigation guard", "authentication", "role-based access"]
+---
+
+S-mart uses [Vue Router 4](https://router.vuejs.org/) with HTML5 history mode for clean URLs (no `#` hash). All routing configuration lives in `src/router/index.js`.
+
+## Router setup
+
+```javascript
+import { createRouter, createWebHistory } from 'vue-router'
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [ /* ... */ ],
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) {
+      return savedPosition   // restore position on browser back/forward
+    } else {
+      return { top: 0 }      // scroll to top on new navigation
+    }
+  },
+})
+```
+
+## Route meta fields
+
+Each route can declare meta fields that the global navigation guard reads to enforce access control.
+
+| Meta field | Type | Behaviour |
+|---|---|---|
+| `requiresAuth: true` | `boolean` | Redirects unauthenticated users to `/login`. Saves the attempted path to `localStorage` for post-login redirect. |
+| `requiresGuest: true` | `boolean` | Redirects authenticated users away from guest-only routes (e.g. `/login`). Checks `localStorage` for a saved redirect path first. |
+| `requiresRoles: ['role']` | `string[]` | Requires the user to hold one of the listed roles. Unauthorised users are redirected to their role's default route. |
+| `title` | `string` | Sets `document.title` on navigation. |
+
+### Example route definition
+
+```javascript
+{
+  path: '/AgregarProducto',
+  name: 'AgregarProducto',
+  component: AgregarProductoView,
+  meta: {
+    title: 'Agregar un Producto - S-mart',
+    requiresAuth: true,
+    requiresRoles: ['vendedor', 'administrador'],
+  },
+}
+```
+
+## Global navigation guard
+
+A `beforeEach` guard runs before every route change:
+
+```javascript
+router.beforeEach(async (to, from, next) => {
+  // 1. Set document title
+  document.title = to.meta.title || 'S-mart'
+
+  const authStore = useAuthStore()
+
+  // 2. Wait for auth to finish loading (max 3 seconds)
+  if (authStore.loading) {
+    const timeout = new Promise((resolve) => setTimeout(resolve, 3000))
+    const loadingDone = new Promise((resolve) => {
+      const unwatch = authStore.$subscribe(() => {
+        if (!authStore.loading) { unwatch(); resolve() }
+      })
+      if (!authStore.loading) { unwatch(); resolve() }
+    })
+    await Promise.race([loadingDone, timeout])
+  }
+
+  const isAuthenticated = !!authStore.usuario
+  const userRole = authStore.rolUsuario
+
+  // 3. Guest-only route: redirect authenticated users away
+  if (to.meta.requiresGuest && isAuthenticated) {
+    const redirectPath = localStorage.getItem('authRedirect')
+    if (redirectPath) {
+      localStorage.removeItem('authRedirect')
+      return next(redirectPath)
+    }
+    return next({ name: 'home' })
+  }
+
+  // 4. Auth-required route: redirect unauthenticated users to login
+  if (to.meta.requiresAuth && !isAuthenticated) {
+    localStorage.setItem('authRedirect', to.fullPath)
+    return next({ name: 'login' })
+  }
+
+  // 5. Role-required route: check role membership
+  if (to.meta.requiresRoles && Array.isArray(to.meta.requiresRoles)) {
+    if (!isAuthenticated) {
+      localStorage.setItem('authRedirect', to.fullPath)
+      return next({ name: 'login' })
+    }
+    if (!to.meta.requiresRoles.includes(userRole)) {
+      // Redirect to the user's own default route
+      if (authStore.esAdmin)     return next({ name: 'admin' })
+      if (authStore.esVendedor)  return next({ name: 'vendedor' })
+      return next({ name: 'home' })
+    }
+  }
+
+  next()
+})
+```
+
+### Guard execution order
+
+<Steps>
+  <Step title="Update document title">
+    Sets `document.title` from `to.meta.title`, falling back to `'S-mart'`.
+  </Step>
+  <Step title="Wait for auth loading">
+    If `authStore.loading` is `true` (session not yet resolved), the guard subscribes to store changes and waits up to **3 seconds** before proceeding.
+  </Step>
+  <Step title="Check guest-only routes">
+    If the destination has `requiresGuest: true` and the user is already authenticated, they are sent to the saved `authRedirect` path or to `home`.
+  </Step>
+  <Step title="Check auth-required routes">
+    If the destination has `requiresAuth: true` and the user is not authenticated, the current full path is saved to `localStorage` as `authRedirect` and the user is sent to `/login`.
+  </Step>
+  <Step title="Check role requirements">
+    If `requiresRoles` is set, the user's role must appear in the array. If it does not, admins go to `/admin`, vendors go to `/vendedor`, and all others go to `/home`.
+  </Step>
+</Steps>
+
+<Tip>
+The `authRedirect` key in `localStorage` enables a "return to intended route" pattern. After a successful login, the auth store reads this value and navigates the user back to where they were trying to go.
+</Tip>
+
+## Route table
+
+| Path | Name | Roles required | Auth | Notes |
+|---|---|---|---|---|
+| `/` | `home` | — | No | Landing page |
+| `/login` | `login` | — | Guest only | Redirects away if authenticated |
+| `/documentacion` | `documentacion` | — | No | Redirects to static `/docs/index.html` |
+| `/tienda` | `tienda` | — | No | Public product catalogue |
+| `/producto/:id` | `producto-detalle` | — | No | Product detail page |
+| `/carrito` | `carrito` | — | No | Shopping cart |
+| `/seleccionar-direccion` | `seleccionar-direccion` | — | No | Address selector |
+| `/agregar-domicilio` | `agregar-domicilio` | — | No | Add delivery address |
+| `/pago-tarjeta` | `pago-tarjeta` | — | Yes | Card payment |
+| `/compra-exitosa` | `compra-exitosa` | — | Yes | Post-purchase confirmation |
+| `/editar-domicilio/:id` | `editar-domicilio` | — | Yes | Edit saved address |
+| `/perfil` | `perfil` | cliente, vendedor, administrador, cajero | Yes | User profile |
+| `/mis-chats` | `mis-chats` | cliente, vendedor, administrador, cajero | Yes | Chat inbox |
+| `/seguimiento` | `seguimiento-envio` | cliente, vendedor, administrador, cajero | Yes | Order tracking |
+| `/venta/:id` | `detalle-venta` | cliente, vendedor, administrador, cajero | Yes | Order detail |
+| `/AgregarProducto` | `AgregarProducto` | vendedor, administrador | Yes | Add new product |
+| `/vendedor` | `vendedor` | vendedor, administrador | Yes | Vendor dashboard |
+| `/VendedorProductos` | `VendedorProductos` | vendedor, administrador | Yes | Vendor product list |
+| `/EditarProducto/:id` | `EditarProducto` | vendedor, administrador | Yes | Edit product |
+| `/vendedor/pedidos` | `vendedor-pedidos` | vendedor, administrador | Yes | Order management |
+| `/reportes` | `reportes` | administrador, vendedor, cajero | Yes | Sales reports |
+| `/cajero` | `cajero` | cajero, administrador | Yes | POS cashier panel |
+| `/admin` | `admin` | administrador | Yes | Admin dashboard |
+| `/admin/productos` | `admin-productos` | administrador | Yes | Manage all products |
+| `/admin/categorias` | `admin-categorias` | administrador | Yes | Manage categories |
+| `/admin/usuarios` | `admin-usuarios` | administrador | Yes | Manage users |
+| `/reset-password` | `reset-password` | — | No | Password reset (from email link) |
+
+## Lazy loading
+
+Routes that are not needed on initial load use dynamic `import()` to split them into separate chunks:
+
+```javascript
+{
+  path: '/admin',
+  name: 'admin',
+  component: () => import('../views/admin/AdminView.vue'),
+  meta: {
+    requiresAuth: true,
+    requiresRoles: ['administrador'],
+  },
+}
+```
+
+Eagerly loaded routes (imported at the top of the file) are the most-visited paths: `HomeView`, `LoginView`, `TiendaView`, `CarritoView`, and the main vendor/checkout views.

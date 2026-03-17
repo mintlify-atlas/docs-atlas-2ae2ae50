@@ -1,0 +1,112 @@
+---
+title: 'Administrator Role'
+description: 'Administrator capabilities in S-mart: full system access, user management, product management, and category management.'
+keywords: ['administrator', 'administrador', 'admin', 'users', 'permissions', 'management']
+---
+
+The **administrator** role (`administrador`) has unrestricted access to every route in the application. In addition to all seller and cashier capabilities, administrators manage the entire user base, oversee the full product catalog, and control product categories through a dedicated admin panel.
+
+<Warning>
+  The administrator role has full system access. Administrators can suspend user accounts, change any user's role, delete or modify any product, and view all sales data across the platform. Grant this role only to trusted personnel.
+</Warning>
+
+## Capabilities
+
+- Access every route without restriction
+- View and use the seller panel (add/edit products, manage orders, view reports)
+- Use the cashier POS panel
+- Manage all user accounts: suspend users, change roles
+- Manage all products in the catalog regardless of which seller listed them
+- Manage product categories
+- View aggregated sales reports across all sellers and cashiers
+
+## Admin-specific routes
+
+In addition to every seller and cashier route, administrators have exclusive access to:
+
+| Route | Description |
+|---|---|
+| `/admin` | Admin dashboard — overview and quick links |
+| `/admin/usuarios` | User management — view, suspend, change roles |
+| `/admin/productos` | Full product catalog management |
+| `/admin/categorias` | Category management |
+
+All four routes use `requiresRoles: ['administrador']`.
+
+## Admin dashboard
+
+The dashboard at `/admin` (`AdminView.vue`) displays the current user's email, role, and name, and provides quick-navigation cards to each admin section.
+
+<CardGroup cols={2}>
+  <Card title="Users" icon="users">
+    List all registered users. Suspend accounts or change a user's role. Changes are written directly to the `usuarios` table.
+  </Card>
+  <Card title="Products" icon="box" href="/features/inventory">
+    View the full product catalog across all sellers. Edit, remove, or update any product.
+  </Card>
+  <Card title="Categories" icon="list" href="/features/store">
+    Add, rename, or remove product categories. Changes affect the category dropdown available to sellers when listing new products.
+  </Card>
+  <Card title="Reports" icon="chart-bar" href="/features/reports">
+    Access aggregated sales reports covering all cashier and seller transactions.
+  </Card>
+</CardGroup>
+
+## Route meta
+
+Admin-only routes set `requiresRoles: ['administrador']`. The global router guard redirects any non-admin user who attempts to access these routes:
+
+```javascript
+// src/router/index.js
+{
+  path: '/admin',
+  meta: {
+    requiresAuth: true,
+    requiresRoles: ['administrador'],
+  },
+}
+```
+
+When the guard detects a role mismatch, it sends administrators to `/admin`, sellers to `/vendedor`, and all other roles to `/`:
+
+```javascript
+if (!to.meta.requiresRoles.includes(userRole)) {
+  if (authStore.esAdmin) return next({ name: 'admin' })
+  else if (authStore.esVendedor) return next({ name: 'vendedor' })
+  else return next({ name: 'home' })
+}
+```
+
+## Suspension handling
+
+If an administrator's own account is suspended (the `suspendido` flag on their `usuarios` row is set to `true`), `AdminView.vue` detects this on mount, signs the user out, and redirects to `/login`.
+
+```javascript
+// src/views/admin/AdminView.vue
+onMounted(async () => {
+  if (authStore.estaSuspendido) {
+    await authStore.cerrarSesion()
+    router.push('/login')
+  }
+})
+```
+
+## Checking administrator role programmatically
+
+```javascript
+import { useRole } from '@/composables/useRole'
+
+const { isAdmin, canManageUsers, canAccessAdmin } = useRole()
+
+// isAdmin.value         — true only for 'administrador' role
+// canManageUsers.value  — true only for 'administrador'
+// canAccessAdmin.value  — true only for 'administrador'
+```
+
+To conditionally render UI elements that only administrators should see:
+
+```vue
+<RoleGuard :roles="['administrador']">
+  <AdminActionsPanel />
+</RoleGuard>
+```

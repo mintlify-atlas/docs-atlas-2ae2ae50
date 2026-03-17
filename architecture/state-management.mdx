@@ -1,0 +1,207 @@
+---
+title: "State management"
+description: "How S-mart uses Pinia stores to manage authentication, products, cart, sales, and notifications."
+keywords: ["pinia", "state management", "stores", "vue", "auth", "cart"]
+---
+
+S-mart uses [Pinia](https://pinia.vuejs.org/) as its state management library. Each store is defined with the Composition API style (`defineStore` with a setup function) and exported as a composable.
+
+## Store overview
+
+| Store | Export | Source file |
+|---|---|---|
+| Authentication | `useAuthStore` | `src/stores/auth.js` |
+| Product catalog | `useProductStore` | `src/stores/products.js` |
+| Shopping cart | `useCartStore` | `src/stores/cartStore.js` |
+| Sales | `useVentasStore` | `src/stores/ventas.js` |
+| Notifications | `useNotificationStore` | `src/stores/notificationStore.js` |
+
+## Importing and using a store
+
+```javascript
+import { useAuthStore } from '@/stores/auth'
+import { useCartStore } from '@/stores/cartStore'
+
+const authStore = useAuthStore()
+const cartStore = useCartStore()
+
+// Read state
+console.log(authStore.rolUsuario)   // 'cliente' | 'vendedor' | ...
+console.log(cartStore.totalItems)   // number
+
+// Call actions
+await authStore.cerrarSesion()
+cartStore.addProduct(product)
+```
+
+<Note>
+Stores must be used inside a component `<script setup>` block or after `createPinia()` has been called. Calling a store in `main.js` before `app.use(createPinia())` will throw an error.
+</Note>
+
+---
+
+## useAuthStore
+
+**File:** `src/stores/auth.js`
+
+Manages the Supabase user session, fetches the extended user profile from the `usuarios` table, and exposes role-based computed flags.
+
+### State
+
+| Property | Type | Description |
+|---|---|---|
+| `usuario` | `SupabaseUser \| null` | Raw Supabase auth user object |
+| `perfil` | `PerfilUsuario \| null` | Extended profile from the `usuarios` table |
+| `loading` | `boolean` | `true` while session initialisation is in progress |
+
+### Computed
+
+| Property | Type | Description |
+|---|---|---|
+| `rolUsuario` | `string \| null` | Current user's role (`administrador`, `vendedor`, `cliente`, `cajero`, `invitado`) |
+| `esAdmin` | `boolean` | `true` if role is `administrador` |
+| `esVendedor` | `boolean` | `true` if role is `vendedor` |
+| `esCliente` | `boolean` | `true` if role is `cliente` |
+| `esCajero` | `boolean` | `true` if role is `cajero` |
+| `estaSuspendido` | `boolean` | `true` if the account is suspended |
+
+### Key actions
+
+| Action | Description |
+|---|---|
+| `inicializarSesion()` | Fetches the active Supabase session and loads the user profile. Called once in `main.js` before mounting. |
+| `cerrarSesion()` | Signs out via Supabase, clears local state, and redirects to `/login`. |
+| `cargarPerfil()` | Queries the `usuarios` table for the current user's extended profile. |
+| `setRouter(router)` | Injects the Vue Router instance so the store can programmatically navigate. |
+
+### Initialisation pattern
+
+The auth store is initialised in `main.js` **before** the Vue app is mounted:
+
+```javascript
+const authStore = useAuthStore()
+authStore.setRouter(router)
+
+// Restore session, then mount
+authStore.inicializarSesion().finally(() => {
+  app.mount('#app')
+})
+```
+
+This ensures that `authStore.usuario` and `authStore.rolUsuario` are populated before any route guard runs.
+
+---
+
+## useProductStore
+
+**File:** `src/stores/products.js`
+
+Loads and caches the product catalog and category list from Supabase. Also manages optimistic stock updates after a purchase.
+
+### State
+
+| Property | Type | Description |
+|---|---|---|
+| `products` | `Product[]` | Formatted product list fetched from the `productos` table |
+| `categorias` | `Categoria[]` | Category list fetched from the `categoria` table |
+| `loading` | `boolean` | `true` while products are being fetched |
+| `error` | `string \| null` | Error message if the last fetch failed |
+
+### Key actions
+
+| Action | Description |
+|---|---|
+| `fetchProducts()` | Fetches and formats all products from Supabase. Applies discount logic. |
+| `fetchCategorias()` | Fetches all categories ordered alphabetically. |
+| `decreaseStock(id, qty)` | Optimistically reduces local stock after a cart operation. |
+| `increaseStock(id, qty)` | Reverses a local stock decrease (e.g., on cart removal). |
+| `updateStockInDB(cartItems)` | Persists stock changes to Supabase after a completed purchase. |
+
+---
+
+## useCartStore
+
+**File:** `src/stores/cartStore.js`
+
+Manages the shopping cart. State is persisted to `localStorage` so the cart survives page refreshes.
+
+### State
+
+| Property | Type | Description |
+|---|---|---|
+| `items` | `CartItem[]` | Array of cart line items, each with `id`, `name`, `precio`, `cantidad`, `stock`, `vendedor_id` |
+
+### Computed
+
+| Property | Type | Description |
+|---|---|---|
+| `subtotal` | `number` | Sum of `precio × cantidad` for all items |
+| `totalItems` | `number` | Total item count (sum of all quantities) |
+
+### Key actions
+
+| Action | Description |
+|---|---|
+| `addProduct(product, quantity?)` | Adds a product or increments its quantity. Respects available stock. |
+| `updateQuantity(productId, newQty)` | Updates the quantity of a specific item. Removes it if quantity reaches 0. |
+| `removeItem(productId)` | Removes a single item by ID. |
+| `removeProductsByIds(ids[])` | Bulk-removes items by ID array. Used after checkout. |
+| `clearCart()` | Empties the cart entirely. |
+
+<Tip>
+The cart is loaded from `localStorage` when the store is first created. Every mutation automatically calls `saveCartToStorage()` to keep the persisted copy in sync.
+</Tip>
+
+---
+
+## useVentasStore
+
+**File:** `src/stores/ventas.js`
+
+Records completed sales to Supabase. Handles two sale types: point-of-sale (POS) transactions processed by cashiers, and online purchases made by customers.
+
+### State
+
+| Property | Type | Description |
+|---|---|---|
+| `ultimaVentaDetalles` | `object \| null` | Details of the most recently completed sale, used to populate the confirmation view |
+
+### Key actions
+
+| Action | Description |
+|---|---|
+| `crearVentaPOS(productos, total, metodoPago)` | Inserts a POS sale record into the `purchase_history` table using the authenticated cashier's ID. |
+| `crearVentaEnLinea(items, metodoPago, direccionId)` | Inserts a unified online sale into `venta_en_linea` with a 7-day estimated delivery date and initial `Pendiente` tracking status. |
+| `setUltimaVenta(detalles)` | Stores the latest sale details in state for the post-purchase confirmation screen. |
+
+---
+
+## useNotificationStore
+
+**File:** `src/stores/notificationStore.js`
+
+Fetches and tracks product stock alerts. Vendors see only their own products; administrators see all products.
+
+### State
+
+| Property | Type | Description |
+|---|---|---|
+| `lowStockItems` | `StockAlertItem[]` | Products with stock between 1 and 5 (inclusive) |
+| `outOfStockItems` | `StockAlertItem[]` | Products with stock of 0 |
+| `loading` | `boolean` | `true` while alerts are being fetched |
+| `error` | `string \| null` | Error message if the fetch failed |
+
+### Computed
+
+| Property | Type | Description |
+|---|---|---|
+| `lowStockCount` | `number` | Count of low-stock products |
+| `outOfStockCount` | `number` | Count of out-of-stock products |
+| `totalAlertCount` | `number` | Combined alert count (`lowStockCount + outOfStockCount`) |
+
+### Key actions
+
+| Action | Description |
+|---|---|
+| `fetchStockAlerts()` | Queries the `productos` table. Filters by `vendedor_id` for vendors; no filter for admins. Low-stock threshold is 5 units. |
+| `clearAlerts()` | Resets all alert lists and clears the error state. |

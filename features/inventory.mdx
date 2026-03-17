@@ -1,0 +1,134 @@
+---
+title: "Inventory Management"
+description: "Sellers and administrators manage product listings, pricing, stock levels, and images through the vendor panel."
+keywords: ["inventory", "products", "stock", "seller", "vendedor", "cloudinary", "images"]
+---
+
+Sellers manage their product catalog through a set of dedicated routes under the vendor panel. Administrators have access to all products regardless of seller.
+
+## Routes
+
+| Route | View | Purpose |
+|---|---|---|
+| `/AgregarProducto` | `VenderView` | Form to create a new product |
+| `/VendedorProductos` | `VendedorProductosView` | List of all the seller's products |
+| `/EditarProducto/:id` | `EditarProductoView` | Edit an existing product by ID |
+
+<Note>
+All inventory routes are protected by role-based guards. Only users with the `vendedor` or `administrador` role can access them.
+</Note>
+
+## Adding a new product
+
+<Steps>
+  <Step title="Open the product form">
+    Navigate to `/AgregarProducto`. The form loads the available category list from the `categoria` table in Supabase on mount.
+  </Step>
+  <Step title="Fill in the product details">
+    Complete the required fields:
+
+    | Field | Required | Description |
+    |---|---|---|
+    | `nombre` | Yes | Product display name |
+    | `codigo` (SKU) | Yes | Unique product code |
+    | `descripcion` | Yes | Full product description |
+    | `categoria` | Yes | Select from the available category list |
+    | `stock` | Yes | Initial inventory count (minimum 0) |
+    | `precio_venta` | Yes | Standard sale price (must be > 0) |
+    | `precio_descuento` | No | Discounted price; leave blank or set to 0 for no discount |
+  </Step>
+  <Step title="Upload a product image">
+    Click the image upload area to select a file (PNG or JPG, up to 10 MB). A preview renders immediately. The image is required — submission is blocked without one.
+  </Step>
+  <Step title="Upload to Cloudinary">
+    On form submission, `subirImagenCloudinary(imagen)` from `@/lib/cloudinary` uploads the selected file to Cloudinary and returns the hosted image URL.
+
+    ```javascript
+    import { subirImagenCloudinary } from '@/lib/cloudinary'
+
+    const imagenUrl = await subirImagenCloudinary(imagen.value)
+    ```
+  </Step>
+  <Step title="Save to Supabase">
+    The product record is inserted into the `productos` table:
+
+    ```javascript
+    await supabase.from('productos').insert([{
+      nombre:           nombre.value,
+      codigo:           sku.value,
+      descripcion:      descripcion.value,
+      categoria:        categoria.value,
+      stock:            stock.value,
+      precio_venta:     precio.value,
+      imagen_url:       imagenUrl,
+      precio_descuento: descuentoFinal, // null if not provided
+    }])
+    ```
+
+    On success, a toast notification confirms the registration and the seller is redirected to `/VendedorProductos`.
+  </Step>
+</Steps>
+
+## Stock tracking
+
+Stock is managed at two levels: the local Pinia store (for real-time UI updates) and the Supabase database (for persistence).
+
+### Local stock operations
+
+`useProductStore` provides two synchronous mutations that update the in-memory product list immediately:
+
+```javascript
+import { useProductStore } from '@/stores/products'
+
+const productStore = useProductStore()
+
+// Decrease stock locally (e.g., when adding to cashier cart)
+productStore.decreaseStock(productId, quantity)
+
+// Increase stock locally (e.g., when removing from cashier cart)
+productStore.increaseStock(productId, quantity)
+```
+
+These functions find the product by ID in the `products` array and mutate `stock` in place. They do not make any network requests.
+
+### Persisting stock to the database
+
+After a completed checkout, `updateStockInDB(cartItems)` writes the current local stock values back to Supabase:
+
+```javascript
+// Called after a POS transaction completes
+await productStore.updateStockInDB(cartItems)
+```
+
+Internally, this maps each cart item to a Supabase `.update({ stock: product.stock }).eq('id', item.id)` call and runs all updates in parallel via `Promise.all`.
+
+<Warning>
+For online (card) payments, stock is updated using the Supabase RPC function `actualizar_stock_multi` inside `usePaymentCheckout.procesarPago()` — not via `updateStockInDB`. This ensures atomicity across multiple product updates in a single network call.
+</Warning>
+
+## Stock alert notifications
+
+The `useNotificationStore` monitors product stock and surfaces alerts to sellers and admins:
+
+| Alert type | Condition | Threshold |
+|---|---|---|
+| **Out of stock** | `stock === 0` | N/A |
+| **Low stock** | `0 < stock ≤ 5` | `LOW_STOCK_THRESHOLD = 5` |
+
+```javascript
+import { useNotificationStore } from '@/stores/notificationStore'
+
+const notifStore = useNotificationStore()
+
+await notifStore.fetchStockAlerts()
+
+notifStore.outOfStockItems  // StockAlertItem[] — products with stock = 0
+notifStore.lowStockItems    // StockAlertItem[] — products with 1–5 units
+notifStore.totalAlertCount  // number — total alerts badge count
+```
+
+Sellers only see alerts for their own products. Administrators see alerts for all products.
+
+## Image hosting
+
+Product images are hosted on Cloudinary. The `@/lib/cloudinary` module exposes `subirImagenCloudinary(file)`, which uploads the file using the Cloudinary unsigned upload preset configured in the environment and returns the secure image URL stored in `imagen_url` on the product record.

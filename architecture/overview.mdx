@@ -1,0 +1,110 @@
+---
+title: "Architecture overview"
+description: "High-level system design of S-mart: a Vue.js SPA backed by a Node.js/Express API and Supabase."
+keywords: ["architecture", "vue", "supabase", "express", "pinia", "overview"]
+---
+
+S-mart is a two-tier web application. A Vue.js single-page application (SPA) runs in the browser and communicates with both a custom REST API and Supabase directly.
+
+## System diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                          Browser                                │
+│                                                                 │
+│   ┌─────────────────────────────────────────────────────────┐  │
+│   │                Vue.js 3 SPA (port 5173)                 │  │
+│   │                                                         │  │
+│   │  Pinia stores · Vue Router · vue-toastification         │  │
+│   └──────────────┬──────────────────────┬───────────────────┘  │
+│                  │                      │                       │
+└──────────────────┼──────────────────────┼───────────────────────┘
+                   │ REST API             │ Supabase JS client
+                   ▼                      ▼
+   ┌───────────────────────┐   ┌──────────────────────────────┐
+   │  Node.js / Express    │   │  Supabase (managed cloud)    │
+   │  (port 3000)          │   │                              │
+   │                       │   │  • PostgreSQL database       │
+   │  Business logic,      │   │  • Auth (JWT sessions)       │
+   │  POS operations       │   │  • Realtime subscriptions    │
+   └───────────────────────┘   │  • Row-level security        │
+                                └──────────────────────────────┘
+                                             │
+                                             ▼
+                                ┌────────────────────────┐
+                                │  Cloudinary            │
+                                │  (image storage/CDN)   │
+                                └────────────────────────┘
+```
+
+The frontend communicates with **two** backend services:
+
+- **Node.js/Express API** — handles point-of-sale (POS) business logic and server-side operations.
+- **Supabase** — accessed directly from the browser via `@supabase/supabase-js` for authentication, database queries, and realtime updates.
+
+Product images are uploaded to and served from **Cloudinary**.
+
+## Two-server setup
+
+During development you run two servers simultaneously:
+
+| Server | Command | Default URL | Purpose |
+|---|---|---|---|
+| Frontend | `npm run dev` (in `Frontend/`) | `http://localhost:5173` | Vue.js SPA with Vite HMR |
+| Backend | `npm run dev` (in `backend/`) | `http://localhost:3000` | Node.js/Express REST API |
+
+The Vite dev server proxies or the frontend makes direct HTTP calls to `localhost:3000` for backend endpoints, while Supabase calls go directly to the managed cloud service.
+
+<Note>
+Both servers must be running for full functionality. Start the backend first to ensure the API is available when the frontend initialises.
+</Note>
+
+## Technology stack
+
+| Layer | Technology | Version | Role |
+|---|---|---|---|
+| Frontend framework | Vue.js | 3.5.x | Reactive UI, Composition API |
+| Build tool | Vite | 7.x | Dev server, bundler, HMR |
+| State management | Pinia | 3.x | Client-side stores |
+| Routing | Vue Router | 4.5.x | SPA navigation, route guards |
+| Supabase client | @supabase/supabase-js | 2.75.x | Auth, database, realtime |
+| Notifications | vue-toastification | 2.x | Toast UI messages |
+| PDF generation | jsPDF + html2canvas | 3.x / 1.x | Sales report export |
+| Backend runtime | Node.js | ≥20.19.0 | Server-side JS |
+| Backend framework | Express | — | REST API |
+| Database | Supabase (PostgreSQL) | — | Persistent data store |
+| Auth provider | Supabase Auth | — | JWT sessions, OAuth |
+| Image storage | Cloudinary | — | Product image CDN |
+
+## Key frontend dependencies
+
+```json
+{
+  "@supabase/supabase-js": "^2.75.0",
+  "pinia": "^3.0.3",
+  "vue-router": "^4.5.1",
+  "vue-toastification": "^2.0.0-rc.5",
+  "jspdf": "^3.0.3",
+  "jspdf-autotable": "^5.0.2",
+  "html2canvas": "^1.4.1"
+}
+```
+
+## User roles
+
+S-mart enforces four authenticated roles, each with access to a distinct set of views and routes:
+
+<CardGroup cols={2}>
+  <Card title="Cliente" icon="user">
+    Browses products, manages cart, and completes purchases via the online store.
+  </Card>
+  <Card title="Cajero" icon="cash-register">
+    Processes in-person payments and manages POS transactions.
+  </Card>
+  <Card title="Vendedor" icon="store">
+    Manages product inventory, listings, and order fulfilment.
+  </Card>
+  <Card title="Administrador" icon="shield">
+    Full system access: users, products, categories, reports, and configuration.
+  </Card>
+</CardGroup>

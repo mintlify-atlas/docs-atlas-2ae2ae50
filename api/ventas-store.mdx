@@ -1,0 +1,180 @@
+---
+title: "useVentasStore"
+description: "Sales processing for S-mart. Handles point-of-sale (POS) transactions and unified online checkout, writing records to the Supabase database."
+---
+
+## Import
+
+```javascript
+import { useVentasStore } from '@/stores/ventas'
+```
+
+## Overview
+
+`useVentasStore` is responsible for writing completed sales to the database. It covers two distinct sale channels:
+
+- **POS (Point of Sale)** — in-store cashier transactions written to `purchase_history`
+- **Online** — unified e-commerce orders written to `venta_en_linea`, consolidating all cart items into a single record regardless of how many sellers are involved
+
+The store also holds a reference to the last completed sale so confirmation views can display order details without re-fetching.
+
+---
+
+## Types
+
+### `VentaProducto`
+
+| Field | Type | Description |
+|---|---|---|
+| `producto_id` | `number` | Product ID. |
+| `nombre` | `string` | Product name at the time of sale. |
+| `cantidad` | `number` | Quantity sold. |
+| `precio_unitario` | `number` | Unit price applied at the time of sale. |
+| `imagen_url` | `string \| null` | Product image URL. |
+
+### `SeguimientoEstado`
+
+| Field | Type | Description |
+|---|---|---|
+| `estado` | `string` | Shipment state label, e.g. `'Pendiente'`, `'Enviado'`. |
+| `fecha` | `string` | ISO timestamp of when the state was recorded. |
+
+### `VentaEnLinea`
+
+| Field | Type | Description |
+|---|---|---|
+| `cliente_id` | `string` | UUID of the customer who placed the order. |
+| `vendedor_id` | `string \| null` | UUID of the reference seller (first item's seller). |
+| `productos` | `VentaProducto[]` | All products included in this order. |
+| `monto_total` | `number` | Grand total for the entire order. |
+| `metodo_pago` | `string` | Payment method used. |
+| `direccion_id` | `number` | ID of the shipping address. |
+| `fecha_estimada_entrega` | `string` | Estimated delivery date in `YYYY-MM-DD` format (7 days from order date). |
+| `seguimiento` | `SeguimientoEstado[]` | Shipping history. Initialised with a single `'Pendiente'` entry. |
+
+---
+
+## State
+
+<ResponseField name="ultimaVentaDetalles" type="any | null">
+  Holds the details of the most recently completed sale. Populated by `setUltimaVenta()` after a successful checkout. Used to pass data to order-confirmation views without an additional database read. `null` until a sale is completed in the current session.
+</ResponseField>
+
+---
+
+## Actions
+
+### `crearVentaPOS(productos, total, metodoPago)`
+
+Records a completed point-of-sale transaction in the `purchase_history` table. Requires the current user to have an active session (the cashier's `id` is pulled from `useAuthStore`).
+
+<ParamField path="productos" type="object[]" required>
+  Array of sold product objects to store in the `products` JSONB column of `purchase_history`.
+</ParamField>
+
+<ParamField path="total" type="number" required>
+  Total monetary amount of the transaction.
+</ParamField>
+
+<ParamField path="metodoPago" type="string" required>
+  Payment method string, e.g. `'efectivo'`, `'tarjeta'`.
+</ParamField>
+
+**Returns:** `Promise<object[]>` — the inserted `purchase_history` rows returned by Supabase.
+
+**Throws:** Re-throws the Supabase error on insert failure, or throws `Error('Cajero no autenticado')` when there is no active session.
+
+---
+
+### `crearVentaEnLinea(itemsDelCarrito, metodoPago, direccionId)`
+
+Records a unified online order in the `venta_en_linea` table. Consolidates all cart items — regardless of seller — into a single database row. Computes the estimated delivery date as 7 days from the current date.
+
+<ParamField path="itemsDelCarrito" type="CartItem[]" required>
+  The current cart items. Each item is mapped to a `VentaProducto` entry. Price is resolved from `item.precio`, falling back to `item.price` then `item.precio_venta`.
+</ParamField>
+
+<ParamField path="metodoPago" type="string" required>
+  Payment method string, e.g. `'tarjeta_credito'`, `'paypal'`.
+</ParamField>
+
+<ParamField path="direccionId" type="number" required>
+  The ID of the customer's selected shipping address.
+</ParamField>
+
+**Returns:** `Promise<object[]>` — the inserted `venta_en_linea` rows returned by Supabase.
+
+**Throws:** Re-throws the Supabase error on insert failure, or throws `Error('Cliente no autenticado')` when there is no active session.
+
+<Note>
+  The `vendedor_id` stored on the `venta_en_linea` record is taken from `itemsDelCarrito[0].vendedor_id` as a reference. This is a simplified model — the full product breakdown across sellers is preserved in the `productos` JSONB array.
+</Note>
+
+---
+
+### `setUltimaVenta(detalles)`
+
+Stores an arbitrary sale details object in `ultimaVentaDetalles`. Call this immediately after a successful `crearVentaEnLinea()` or `crearVentaPOS()` so the confirmation view can access the result.
+
+<ParamField path="detalles" type="any" required>
+  The sale data to store. Typically the array returned by `crearVentaEnLinea()` or `crearVentaPOS()`.
+</ParamField>
+
+**Returns:** `void`
+
+---
+
+## Usage Example
+
+```javascript
+// Online checkout flow
+import { useVentasStore } from '@/stores/ventas'
+import { useCartStore } from '@/stores/cartStore'
+import { useProductStore } from '@/stores/products'
+import { useRouter } from 'vue-router'
+
+const ventas = useVentasStore()
+const cart = useCartStore()
+const productStore = useProductStore()
+const router = useRouter()
+
+async function checkout(metodoPago, direccionId) {
+  try {
+    // 1. Record the sale
+    const result = await ventas.crearVentaEnLinea(
+      cart.items,
+      metodoPago,
+      direccionId
+    )
+
+    // 2. Persist sale details for the confirmation page
+    ventas.setUltimaVenta(result)
+
+    // 3. Update stock locally then sync to DB
+    for (const item of cart.items) {
+      productStore.decreaseStock(item.id, item.cantidad)
+    }
+    await productStore.updateStockInDB(cart.items)
+
+    // 4. Clear the cart
+    cart.clearCart()
+
+    // 5. Navigate to confirmation
+    router.push('/order-confirmation')
+  } catch (err) {
+    console.error('Checkout failed:', err)
+  }
+}
+```
+
+```javascript
+// POS cashier flow
+import { useVentasStore } from '@/stores/ventas'
+
+const ventas = useVentasStore()
+
+async function registrarVentaFisica(productos, total) {
+  const result = await ventas.crearVentaPOS(productos, total, 'efectivo')
+  ventas.setUltimaVenta(result)
+}
+```

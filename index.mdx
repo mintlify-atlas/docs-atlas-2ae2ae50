@@ -1,97 +1,74 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "S-mart Documentation"
+description: "A full-stack online store platform with role-based access for customers, sellers, cashiers, and administrators."
 ---
 
-## Setting up
+## Welcome to S-mart
 
-Get your documentation site up and running in minutes.
+S-mart is a modern online store platform built with Vue.js 3, Pinia, and Supabase. It supports four distinct user roles — Customer, Seller, Cashier, and Administrator — each with dedicated workflows and access controls.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get the application running locally in minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Environment Setup" icon="gear" href="/environment-setup">
+    Configure your Supabase and environment variables.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="User Roles" icon="users" href="/roles/overview">
+    Understand the four roles and what each can do.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Core Features" icon="store" href="/features/store">
+    Explore the product catalog, cart, payments, and more.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What S-mart includes
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Product Catalog" icon="tag" href="/features/store">
+    Browse and search products by category, with discount pricing support.
+  </Card>
+  <Card title="Shopping Cart & Checkout" icon="cart-shopping" href="/features/cart-checkout">
+    Multi-step checkout flow with address management and card payments.
+  </Card>
+  <Card title="Cashier POS Panel" icon="cash-register" href="/features/payments">
+    In-store point-of-sale transactions with cashier access codes.
+  </Card>
+  <Card title="Inventory Management" icon="boxes-stacked" href="/features/inventory">
+    Sellers manage their products, stock levels, images, and pricing.
+  </Card>
+  <Card title="Order Tracking" icon="truck" href="/features/orders">
+    Customers and staff track shipment status and order history.
+  </Card>
+  <Card title="Real-Time Chat" icon="message" href="/features/chat">
+    Built-in chat system powered by Supabase Realtime.
+  </Card>
+  <Card title="Sales Reports" icon="chart-bar" href="/features/reports">
+    Exportable sales reports as PDF for admins, sellers, and cashiers.
+  </Card>
+  <Card title="Admin Dashboard" icon="shield-halved" href="/roles/administrator">
+    Full system control: users, products, categories, and configuration.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Technology stack
 
-## Need inspiration?
+<CardGroup cols={2}>
+  <Card title="Frontend" icon="code" href="/architecture/frontend">
+    Vue.js 3 with Composition API, Pinia state management, and Vue Router.
+  </Card>
+  <Card title="Backend & Auth" icon="database" href="/architecture/overview">
+    Node.js + Express REST API, Supabase for database and authentication.
+  </Card>
+</CardGroup>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## API Reference
+
+<CardGroup cols={2}>
+  <Card title="Pinia Stores" icon="database" href="/api/auth-store">
+    Auth, Products, Cart, Notifications, and Sales stores.
+  </Card>
+  <Card title="Composables" icon="puzzle-piece" href="/api/use-payment-checkout">
+    Payment checkout, credit card formatting, ticket generation, chat, and role helpers.
+  </Card>
+</CardGroup>

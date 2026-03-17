@@ -1,0 +1,131 @@
+---
+title: useTicketGenerator
+description: Generates and downloads a PDF purchase receipt by rendering a Vue ticket component to a canvas with html2canvas and converting it to a PDF with jsPDF.
+---
+
+## Overview
+
+`useTicketGenerator` provides a single `generatePdf` function that takes purchase data, populates a hidden Vue ticket component, captures it as a high-resolution PNG using `html2canvas`, and produces a downloadable PDF via `jsPDF`.
+
+The composable reads the authenticated user's profile from `useAuthStore` to add the cashier/customer name to the ticket.
+
+## Import
+
+```javascript
+import { useTicketGenerator } from '@/composables/Payment/useTicketGenerator.js'
+```
+
+## Returned State
+
+<ResponseField name="ticketData" type="Ref<object | null>">
+  Holds the formatted purchase data while the PDF is being generated. This ref is bound to the ticket template component so that it renders with the correct data. It is reset to `null` after `generatePdf` completes (success or failure).
+
+  Shape when populated:
+
+  | Field | Type | Description |
+  |---|---|---|
+  | `id` | `string \| number` | Purchase ID, also used in the filename |
+  | `fecha` | `string` | Locale-formatted date/time (`es-MX`) |
+  | `cajero` | `string` | Profile name or email of the authenticated user |
+  | `items` | `object[]` | Line items passed from the original purchase data |
+  | `subtotal` | `number` | Pre-discount order total |
+  | `discount` | `number` | Discount amount |
+  | `total` | `number` | Final order total |
+  | `paymentMethod` | `string` | Human-readable payment method string |
+</ResponseField>
+
+<ResponseField name="ticketRef" type="Ref<object | null>">
+  A template ref that must be bound to the ticket component in the parent template via `ref="ticketRef"`. The composable reads `ticketRef.value.$el` to locate the DOM element for `html2canvas` capture.
+</ResponseField>
+
+## Returned Functions
+
+### `generatePdf(purchaseData)`
+
+Orchestrates the full PDF generation pipeline:
+
+1. Formats and assigns `purchaseData` to `ticketData`.
+2. Calls `nextTick()` to allow Vue to render the ticket component.
+3. Captures the rendered DOM element at 2× scale using `html2canvas`.
+4. Creates a `jsPDF` document sized to match the canvas dimensions (auto-selects portrait or landscape).
+5. Saves the file as `ticket-smart-{id}.pdf`.
+
+```typescript
+function generatePdf(purchaseData: {
+  id: string | number
+  fecha: Date | string
+  items: object[]
+  subtotal: number
+  discount: number
+  total: number
+  paymentMethod: string
+  [key: string]: any
+}): Promise<void>
+```
+
+<ParamField path="purchaseData.id" type="string | number" required>
+  Unique purchase identifier. Used to name the downloaded file as `ticket-smart-{id}.pdf`.
+</ParamField>
+
+<ParamField path="purchaseData.fecha" type="Date | string" required>
+  Purchase date/time. Passed through `new Date()` and formatted to `es-MX` locale before display.
+</ParamField>
+
+<ParamField path="purchaseData.items" type="object[]" required>
+  Array of purchased line items. Each item should include product name and price fields.
+</ParamField>
+
+<ParamField path="purchaseData.subtotal" type="number" required>
+  Order subtotal before discounts.
+</ParamField>
+
+<ParamField path="purchaseData.discount" type="number" required>
+  Total discount applied to the order.
+</ParamField>
+
+<ParamField path="purchaseData.total" type="number" required>
+  Final charged amount.
+</ParamField>
+
+<ParamField path="purchaseData.paymentMethod" type="string" required>
+  Human-readable payment method (e.g. `"Visa (•••• 1111)"`).
+</ParamField>
+
+**Throws** an `Error` if `ticketRef.value.$el` is not found in the DOM when `generatePdf` executes.
+
+<Note>
+  The ticket component must already be mounted and conditionally visible when `generatePdf` is called. A `v-if="ticketData"` on the component combined with the reactive `ticketData` ref ensures it renders only during generation.
+</Note>
+
+## Usage Example
+
+```javascript
+<script setup>
+import { useTicketGenerator } from '@/composables/Payment/useTicketGenerator.js'
+import TicketComponent from '@/components/TicketComponent.vue'
+
+const { ticketData, ticketRef, generatePdf } = useTicketGenerator()
+
+// Call after a successful payment — purchaseDataForTicket comes from procesarPago()
+async function downloadTicket(purchaseDataForTicket) {
+  await generatePdf(purchaseDataForTicket)
+}
+</script>
+
+<template>
+  <!-- Ticket component is only mounted while ticketData is populated -->
+  <!-- ticketRef is the template ref the composable uses to capture the DOM -->
+  <TicketComponent
+    v-if="ticketData"
+    ref="ticketRef"
+    :data="ticketData"
+    style="position: fixed; left: -9999px; top: 0;"
+  />
+
+  <button @click="downloadTicket(purchaseResult)">Download Receipt</button>
+</template>
+```
+
+<Note>
+  Position the ticket component off-screen (e.g. `left: -9999px`) so it renders in the DOM without being visible to the user. Do not use `display: none` or `visibility: hidden` — `html2canvas` cannot capture hidden elements.
+</Note>

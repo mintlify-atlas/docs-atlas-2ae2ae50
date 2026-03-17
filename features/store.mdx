@@ -1,0 +1,135 @@
+---
+title: "Product Store"
+description: "Browse the public product catalog at /tienda, filter by category, and view product details with discount pricing."
+keywords: ["store", "products", "catalog", "tienda", "discount", "category"]
+---
+
+The product store at `/tienda` is the main public-facing catalog of S-mart. Any visitor can browse all available products, filter by category, and view individual product detail pages. Authentication is only required to add items to the cart or initiate a purchase.
+
+## Product listing
+
+The store loads all products from the `productos` table in Supabase via `useProductStore`. Products are ordered by ID descending so the newest listings appear first.
+
+Each product card displays:
+
+- Product image
+- Name
+- Final price (`price`) — the discounted price when a valid discount exists, otherwise the original sale price
+- Original price (`originalPrice`) — shown as strikethrough text only when a discount is active
+- Category badge
+
+### Discount pricing
+
+The store applies discount pricing automatically based on two database fields:
+
+| DB field | Description |
+|---|---|
+| `precio_venta` | The standard sale price |
+| `precio_descuento` | The discounted price (optional) |
+
+A discount is considered active when `precio_descuento` is set, greater than `0`, and less than `precio_venta`. When active, `precio_descuento` is shown as the current price and `precio_venta` is shown as the crossed-out original.
+
+```javascript products.js
+// From useProductStore — discount logic applied during fetchProducts()
+const tieneDescuento =
+  p.precio_descuento &&
+  p.precio_descuento > 0 &&
+  p.precio_descuento < p.precio_venta
+
+return {
+  price: tieneDescuento
+    ? `$${p.precio_descuento.toFixed(2)}`
+    : `$${p.precio_venta.toFixed(2)}`,
+  originalPrice: tieneDescuento
+    ? `$${p.precio_venta.toFixed(2)}`
+    : null,
+  precio: tieneDescuento ? p.precio_descuento : p.precio_venta,
+  precioOriginal: p.precio_venta,
+}
+```
+
+## Category filtering
+
+Categories are loaded from the `categoria` table via `fetchCategorias()`. Users select a category to filter the product grid. The category list is sorted alphabetically.
+
+## Product data model
+
+The `useProductStore` maps database rows into a normalized `Product` object used throughout the application:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `number` | Unique product identifier |
+| `name` | `string` | Product display name (`nombre` in DB) |
+| `price` | `string` | Formatted final price, e.g. `"$12.99"` |
+| `originalPrice` | `string \| null` | Formatted original price when discounted; `null` otherwise |
+| `description` | `string` | Product description |
+| `imageUrl` | `string` | Cloudinary image URL |
+| `precio` | `number` | Final price as a number (for cart calculations) |
+| `precioOriginal` | `number` | Original sale price as a number |
+| `stock` | `number` | Available units in stock |
+| `vendedor_id` | `string` | UUID of the seller who owns this product |
+| `categoria` | `string` | Category name |
+
+<Note>
+The `price` and `originalPrice` fields are pre-formatted strings intended for display. Use `precio` and `precioOriginal` for any arithmetic, such as cart totals.
+</Note>
+
+## Product detail view
+
+Navigating to `/producto/:id` opens the `ProductoDetalleView` component, which loads full product details from Supabase for a single product by its ID.
+
+The detail page includes:
+
+<Columns cols={2}>
+  <Card title="Image gallery" icon="image">
+    Full-size product image rendered by the `ImageGallery` component.
+  </Card>
+  <Card title="Product info" icon="tag">
+    Name, final price, original price (if discounted), description, category, and stock availability via `ProductInfo`.
+  </Card>
+  <Card title="Purchase actions" icon="cart-shopping">
+    Quantity selector with "Add to cart" and "Buy now" buttons via `PurchaseActions`. Both require authentication.
+  </Card>
+  <Card title="Chat with seller" icon="message">
+    A `ChatButton` appears when the product has a `vendedor_id`, allowing customers to open a direct conversation with the seller.
+  </Card>
+</Columns>
+
+Below the main product layout, the page also renders:
+
+- **Related products** — other products in the same category
+- **Product reviews** — customer ratings and comments for the product
+
+### Buy now vs. add to cart
+
+| Action | Behavior |
+|---|---|
+| **Add to cart** | Adds the product to `useCartStore` and persists to `localStorage`. User stays on the product page. |
+| **Buy now** | Skips the cart entirely and redirects to `/seleccionar-direccion?buyNowId={id}&qty={qty}`. |
+
+<Warning>
+Both actions are blocked for suspended accounts. If `authStore.estaSuspendido` is `true`, an alert is shown and the action is prevented.
+</Warning>
+
+## Store state
+
+The `useProductStore` (Pinia) exposes the following reactive state and actions:
+
+```javascript
+import { useProductStore } from '@/stores/products'
+
+const productStore = useProductStore()
+
+// State
+productStore.products   // Product[] — full product list
+productStore.categorias // Categoria[] — available categories
+productStore.loading    // boolean — true while fetching
+productStore.error      // string | null — error message on failure
+
+// Actions
+await productStore.fetchProducts()          // Load all products
+await productStore.fetchCategorias()        // Load category list
+productStore.decreaseStock(productId, qty)  // Decrease local stock
+productStore.increaseStock(productId, qty)  // Increase local stock
+await productStore.updateStockInDB(cartItems) // Persist stock to Supabase
+```

@@ -1,0 +1,147 @@
+---
+title: "Real-Time Chat"
+description: "Built-in messaging between customers and sellers, powered by Supabase Realtime. Accessible to all authenticated roles."
+keywords: ["chat", "messages", "realtime", "supabase", "conversation", "mis-chats"]
+---
+
+S-mart includes a real-time chat system that lets customers contact sellers directly from a product detail page and continue the conversation in the dedicated chat inbox.
+
+<Note>
+Chat is powered by Supabase Realtime. New messages appear instantly without polling, using PostgreSQL Change Data Capture (CDC) over a WebSocket connection.
+</Note>
+
+## Routes
+
+| Route | View | Access |
+|---|---|---|
+| `/mis-chats` | `MisChatsView` | All authenticated roles |
+| `/producto/:id` | `ProductoDetalleView` | Initiates a chat via `ChatButton` on the product page |
+
+## Starting a conversation
+
+On any product detail page, a **Chat with seller** button appears when the product has a `vendedor_id`. Clicking it calls `obtenerOCrearConversacion(productoId, vendedorId)`, which:
+
+1. Looks up an existing conversation in the `conversaciones` table matching `(producto_id, cliente_id, vendedor_id)`
+2. Returns the existing record if found
+3. Creates and returns a new record if none exists
+
+This ensures each (product, customer, seller) triple has exactly one conversation thread.
+
+## `useChat` composable
+
+All chat functionality is encapsulated in `useChat`, which you can import in any component:
+
+```javascript
+import { useChat } from '@/composables/useChat'
+
+const {
+  conversaciones,               // Ref<object[]>  — all conversations for the current user
+  mensajes,                     // Ref<object[]>  — messages in the active conversation
+  loading,                      // Ref<boolean>
+  error,                        // Ref<Error|null>
+  mensajesNoLeidos,             // ComputedRef<number> — count of conversations with unread messages
+  obtenerOCrearConversacion,    // (productoId, vendedorId) => Promise<conversation>
+  cargarConversaciones,         // () => Promise<void>
+  cargarMensajes,               // (conversacionId) => Promise<void>
+  enviarMensaje,                // (conversacionId, contenido) => Promise<message>
+  marcarComoLeido,              // (conversacionId) => Promise<void>
+  suscribirseAMensajes,         // (conversacionId, callback) => unsubscribe()
+  suscribirseAConversaciones,   // (callback) => unsubscribe()
+} = useChat()
+```
+
+### Loading conversations
+
+`cargarConversaciones()` fetches all conversations where the current user is either the `cliente_id` or `vendedor_id`. Each conversation is joined with:
+
+- `producto` — product name and image
+- `cliente` — customer name and avatar (`foto_url`)
+- `vendedor` — seller name and avatar (`foto_url`)
+
+Conversations are ordered by `actualizado` descending so the most recently active thread appears first.
+
+### Loading and sending messages
+
+```javascript
+// Load all messages for a conversation (also marks the conversation as read)
+await cargarMensajes(conversacionId)
+
+// Send a new message
+const newMessage = await enviarMensaje(conversacionId, 'Hello!')
+```
+
+Each message includes a `remitente` join with `{ id, nombre, foto_url }` from the `usuarios` table.
+
+### Unread message count
+
+The `mensajesNoLeidos` computed property counts conversations where the current user has not yet read the latest message:
+
+```javascript
+// Returns the number of conversations with unread messages
+mensajesNoLeidos.value // e.g., 3
+```
+
+The read state is tracked per role on the conversation record:
+
+- `cliente_leido` — `true` when the customer has read the latest message
+- `vendedor_leido` — `true` when the seller has read the latest message
+
+`marcarComoLeido(conversacionId)` updates the appropriate field on the `conversaciones` row and marks all messages from the other party as `leido: true` in the `mensajes` table.
+
+## Real-time subscriptions
+
+### Subscribe to new messages
+
+```javascript
+// Subscribe to new messages in a specific conversation
+const unsubscribe = suscribirseAMensajes(conversacionId, (newMessage) => {
+  // newMessage includes the full remitente join
+  console.log('New message:', newMessage.contenido)
+})
+
+// Call unsubscribe() when the component unmounts
+onUnmounted(() => unsubscribe())
+```
+
+Internally this opens a Supabase Realtime channel filtering `INSERT` events on the `mensajes` table where `conversacion_id = eq.{conversacionId}`.
+
+### Subscribe to conversation updates
+
+```javascript
+// Subscribe to any change on the conversaciones table
+const unsubscribe = suscribirseAConversaciones((payload) => {
+  console.log('Conversation updated:', payload)
+  // cargarConversaciones() is also called automatically
+})
+```
+
+This subscription listens for all event types (`*`) on the `conversaciones` table and re-fetches the conversation list whenever a change is detected, keeping the inbox badge and conversation list current.
+
+<Tip>
+Always call the returned `unsubscribe` function when a component using real-time subscriptions is unmounted to avoid memory leaks and stale WebSocket channels.
+</Tip>
+
+## Data model
+
+### `conversaciones` table
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `uuid` | Unique conversation identifier |
+| `producto_id` | `integer` | The product this conversation is about |
+| `cliente_id` | `uuid` | The customer participant |
+| `vendedor_id` | `uuid` | The seller participant |
+| `cliente_leido` | `boolean` | Whether the customer has read the latest message |
+| `vendedor_leido` | `boolean` | Whether the seller has read the latest message |
+| `actualizado` | `timestamptz` | Timestamp of the last message or update |
+
+### `mensajes` table
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `uuid` | Unique message identifier |
+| `conversacion_id` | `uuid` | Foreign key to `conversaciones` |
+| `remitente_id` | `uuid` | The user who sent the message |
+| `contenido` | `text` | Message text |
+| `leido` | `boolean` | Whether the recipient has read this message |
+| `creado` | `timestamptz` | Message creation timestamp |

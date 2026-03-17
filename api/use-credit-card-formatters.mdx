@@ -1,0 +1,219 @@
+---
+title: useCreditCardFormatters
+description: Utility functions for formatting, validating, and identifying credit cards — including card number grouping, MM/YY expiry formatting, CVV validation, and card network detection.
+---
+
+## Overview
+
+`useCreditCardFormatters` is a stateless composable that provides a collection of pure utility functions for credit card data. It is used internally by [`usePaymentCheckout`](/api/use-payment-checkout) for validation before persisting card data to Supabase.
+
+No reactive state is returned — all functions accept and return plain values.
+
+## Import
+
+```javascript
+import { useCreditCardFormatters } from '@/composables/Payment/useCreditCardFormatters.js'
+```
+
+## Returned Functions
+
+### `validateCardNumber(number)`
+
+Strips all non-digit characters from the input and checks that exactly 16 digits remain.
+
+```typescript
+function validateCardNumber(number: string): string | null
+```
+
+<ParamField path="number" type="string" required>
+  Raw card number, with or without spaces/dashes (e.g. `"4111 1111 1111 1111"`).
+</ParamField>
+
+**Returns** the clean 16-digit string if valid, `null` otherwise.
+
+```javascript
+validateCardNumber('4111 1111 1111 1111') // '4111111111111111'
+validateCardNumber('1234 5678')           // null
+```
+
+---
+
+### `validateExpirationDate(date)`
+
+Validates that the expiry date matches `MM/YY` or `MM/YYYY` and has not already passed.
+
+```typescript
+function validateExpirationDate(date: string): boolean
+```
+
+<ParamField path="date" type="string" required>
+  Expiry date string in `MM/YY` or `MM/YYYY` format (e.g. `"12/26"`).
+</ParamField>
+
+**Returns** `true` if the date is valid and in the future, `false` otherwise. Two-digit years are expanded using the current century prefix.
+
+```javascript
+validateExpirationDate('12/30') // true  (future date)
+validateExpirationDate('01/20') // false (past date)
+validateExpirationDate('13/26') // false (invalid month)
+```
+
+---
+
+### `formatCardNumberInput(value)`
+
+Formats a card number for display in an input field, inserting a space every 4 digits. Truncates output to a maximum of 19 characters (16 digits + 3 spaces).
+
+```typescript
+function formatCardNumberInput(value: string): string
+```
+
+<ParamField path="value" type="string" required>
+  Raw or partially typed card number string.
+</ParamField>
+
+**Returns** a space-separated string in `XXXX XXXX XXXX XXXX` format.
+
+```javascript
+formatCardNumberInput('4111111111111111') // '4111 1111 1111 1111'
+formatCardNumberInput('41111111')         // '4111 1111'
+```
+
+---
+
+### `formatExpirationDateInput(value)`
+
+Formats an expiry date for display in an input field by automatically inserting a `/` after the month digits.
+
+```typescript
+function formatExpirationDateInput(value: string): string
+```
+
+<ParamField path="value" type="string" required>
+  Raw or partially typed expiry string.
+</ParamField>
+
+**Returns** a formatted `MM/YY` string. Input is capped at 4 digits; the slash is inserted after position 2.
+
+```javascript
+formatExpirationDateInput('1226') // '12/26'
+formatExpirationDateInput('12')   // '12'
+formatExpirationDateInput('1')    // '1'
+```
+
+---
+
+### `getLastFour(number)`
+
+Extracts the last 4 characters of a card number string for masked display.
+
+```typescript
+function getLastFour(number: string): string
+```
+
+<ParamField path="number" type="string" required>
+  The full card number string.
+</ParamField>
+
+**Returns** the last 4 characters, or `'XXXX'` if `number` is falsy.
+
+```javascript
+getLastFour('4111111111111111') // '1111'
+getLastFour('')                 // 'XXXX'
+```
+
+---
+
+### `getCardType(number)`
+
+Detects the card network from the card number prefix using standard IIN ranges.
+
+```typescript
+function getCardType(number: string): 'Visa' | 'MasterCard' | 'Amex' | 'Tarjeta'
+```
+
+<ParamField path="number" type="string" required>
+  Card number string (digits only or with spaces/dashes).
+</ParamField>
+
+**Returns** a network name string. Falls back to `'Tarjeta'` for unrecognized prefixes.
+
+| Prefix | Result |
+|---|---|
+| Starts with `4` | `'Visa'` |
+| Starts with `51`–`55` | `'MasterCard'` |
+| Starts with `34` or `37` | `'Amex'` |
+| Any other | `'Tarjeta'` |
+
+```javascript
+getCardType('4111111111111111') // 'Visa'
+getCardType('5500000000000004') // 'MasterCard'
+getCardType('378282246310005')  // 'Amex'
+getCardType('6011111111111117') // 'Tarjeta'
+```
+
+---
+
+### `formatExpiryDisplay(isoDate)`
+
+Converts a full ISO date string (as stored in Supabase) to a human-readable `MM/YY` expiry string.
+
+```typescript
+function formatExpiryDisplay(isoDate: string): string
+```
+
+<ParamField path="isoDate" type="string" required>
+  ISO 8601 date string (e.g. `"2026-12-31T23:59:59Z"`).
+</ParamField>
+
+**Returns** a zero-padded `MM/YY` string, or an empty string if the input is falsy. Uses UTC month and year to avoid timezone-related off-by-one errors.
+
+```javascript
+formatExpiryDisplay('2026-12-31T23:59:59Z') // '12/26'
+formatExpiryDisplay('2030-01-31T23:59:59Z') // '01/30'
+formatExpiryDisplay('')                      // ''
+```
+
+## Usage Example
+
+```javascript
+<script setup>
+import { useCreditCardFormatters } from '@/composables/Payment/useCreditCardFormatters.js'
+import { ref } from 'vue'
+
+const {
+  formatCardNumberInput,
+  formatExpirationDateInput,
+  validateCardNumber,
+  validateExpirationDate,
+  getCardType,
+  getLastFour,
+  formatExpiryDisplay,
+} = useCreditCardFormatters()
+
+const cardNumberRaw = ref('')
+const expiryRaw = ref('')
+
+// Format while the user types
+function onCardInput(event) {
+  cardNumberRaw.value = formatCardNumberInput(event.target.value)
+}
+
+function onExpiryInput(event) {
+  expiryRaw.value = formatExpirationDateInput(event.target.value)
+}
+
+function submitCard() {
+  const cleanNumber = validateCardNumber(cardNumberRaw.value)
+  if (!cleanNumber) {
+    console.error('Invalid card number')
+    return
+  }
+  if (!validateExpirationDate(expiryRaw.value)) {
+    console.error('Card is expired or date is invalid')
+    return
+  }
+  console.log(`${getCardType(cleanNumber)} ending in ${getLastFour(cleanNumber)}`)
+}
+</script>
+```

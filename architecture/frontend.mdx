@@ -1,0 +1,184 @@
+---
+title: "Frontend architecture"
+description: "Structure of the Vue.js 3 SPA: views, components, stores, composables, and build configuration."
+keywords: ["vue", "vite", "frontend", "composition api", "project structure"]
+---
+
+The frontend is a Vue.js 3 single-page application built with Vite. It uses the Composition API with `<script setup>` throughout.
+
+## Project structure
+
+```
+Frontend/
+├── public/                     # Static assets served as-is
+├── src/
+│   ├── main.js                 # App entry point: plugins, auth init, mount
+│   ├── App.vue                 # Root component — renders <RouterView />
+│   ├── assets.css              # Global styles
+│   ├── assets/                 # Images, fonts, icons
+│   │
+│   ├── views/                  # Page-level route components
+│   │   ├── HomeView.vue
+│   │   ├── admin/              # Administrator views
+│   │   │   ├── AdminView.vue
+│   │   │   ├── AdminProductosView.vue
+│   │   │   ├── AdminCategoriasView.vue
+│   │   │   └── AdminUsuariosView.vue
+│   │   ├── auth/               # Authentication views
+│   │   │   ├── LoginView.vue
+│   │   │   └── ResetPasswordView.vue
+│   │   ├── cajero/             # Cashier POS views
+│   │   │   └── CajeroView.vue
+│   │   ├── checkout/           # Purchase flow views
+│   │   │   ├── CarritoView.vue
+│   │   │   ├── PagoTarjetaView.vue
+│   │   │   ├── SeleccionarDireccionView.vue
+│   │   │   ├── AgregarDomicilioView.vue
+│   │   │   ├── EditarDomicilioView.vue
+│   │   │   └── CompraExitosaView.vue
+│   │   ├── perfil/             # User profile views
+│   │   │   ├── PerfilView.vue
+│   │   │   ├── MisChatsView.vue
+│   │   │   ├── SeguimientoEnvioView.vue
+│   │   │   └── DetalleVentaView.vue
+│   │   ├── reportes/           # Sales reporting
+│   │   │   └── ReportesView.vue
+│   │   ├── store/              # Public storefront
+│   │   │   ├── TiendaView.vue
+│   │   │   └── ProductoDetalleView.vue
+│   │   └── vendedor/           # Vendor management views
+│   │       ├── VenderView.vue
+│   │       ├── VendedorProductosView.vue
+│   │       ├── EditarProductoView.vue
+│   │       └── VendedorPedidosView.vue
+│   │
+│   ├── components/             # Reusable UI components
+│   │   ├── Cajero/             # POS-specific components
+│   │   ├── Chat/               # Real-time chat components
+│   │   ├── Checkout/           # Cart and payment components
+│   │   ├── DetallesProductos/  # Product detail components
+│   │   ├── Landing/            # Home page components
+│   │   ├── PrincipalComponents/ # Shared layout components
+│   │   ├── LoginForm.vue
+│   │   ├── ForgotPasswordForm.vue
+│   │   └── RoleGuard.vue
+│   │
+│   ├── stores/                 # Pinia state stores
+│   │   ├── auth.js             # Session, user profile, role
+│   │   ├── products.js         # Product catalog, categories
+│   │   ├── cartStore.js        # Shopping cart (localStorage-backed)
+│   │   ├── ventas.js           # Sales recording (POS + online)
+│   │   └── notificationStore.js # Stock alert notifications
+│   │
+│   ├── composables/            # Reusable Composition API functions
+│   │   ├── Payment/            # Payment flow logic
+│   │   ├── useChat.js          # Chat functionality
+│   │   └── useRole.js          # Role-checking helpers
+│   │
+│   ├── lib/                    # Third-party SDK clients
+│   │   ├── supabase.js         # Supabase client singleton
+│   │   └── cloudinary.js       # Cloudinary image upload helper
+│   │
+│   └── router/
+│       └── index.js            # Vue Router configuration and guards
+├── vite.config.js
+└── package.json
+```
+
+## Entry point
+
+`src/main.js` bootstraps the application in a specific order:
+
+1. Creates the Vue app instance.
+2. Registers Pinia (state), Vue Router (navigation), and vue-toastification (UI toasts).
+3. Calls `authStore.inicializarSesion()` to restore the user session from Supabase before the app mounts.
+
+```javascript
+const app = createApp(App)
+
+app.use(createPinia())
+app.use(router)
+app.use(Toast, {
+  position: POSITION.TOP_RIGHT,
+  timeout: 3000,
+  closeOnClick: true,
+  pauseOnHover: true,
+})
+
+const authStore = useAuthStore()
+authStore.setRouter(router)
+
+authStore.inicializarSesion().finally(() => {
+  app.mount('#app')
+})
+```
+
+<Note>
+The app does not mount until `inicializarSesion()` completes. This prevents the router's auth guard from running before the session is known.
+</Note>
+
+## Vite configuration
+
+The project uses Vite with two plugins and a path alias:
+
+```javascript
+import { fileURLToPath, URL } from 'node:url'
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+import vueDevTools from 'vite-plugin-vue-devtools'
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    vueDevTools(),
+  ],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url))
+    },
+  },
+})
+```
+
+The `@` alias maps to `src/`, so `import { supabase } from '@/lib/supabase'` resolves to `src/lib/supabase.js` from any file in the project.
+
+## Composition API pattern
+
+All components use the `<script setup>` syntax. Stores are accessed via their composable functions:
+
+```vue
+<script setup>
+import { useAuthStore } from '@/stores/auth'
+import { useCartStore } from '@/stores/cartStore'
+
+const authStore = useAuthStore()
+const cartStore = useCartStore()
+</script>
+
+<template>
+  <p>Welcome, {{ authStore.perfil?.nombre }}</p>
+  <p>Items in cart: {{ cartStore.totalItems }}</p>
+</template>
+```
+
+## Third-party SDK clients
+
+<CardGroup cols={2}>
+  <Card title="supabase.js" icon="database">
+    Exports a singleton `supabase` client configured with session persistence, auto token refresh, and URL detection for OAuth redirects.
+  </Card>
+  <Card title="cloudinary.js" icon="image">
+    Exports `subirImagenCloudinary(archivo)` — a thin wrapper around the Cloudinary unsigned upload API. Used by vendors to upload product images.
+  </Card>
+</CardGroup>
+
+## Available scripts
+
+| Script | Command | Description |
+|---|---|---|
+| Dev server | `npm run dev` | Vite dev server with HMR at `localhost:5173` |
+| Build | `npm run build` | Production bundle output |
+| Preview | `npm run preview` | Serve the production build locally |
+| Lint | `npm run lint` | ESLint with auto-fix |
+| Format | `npm run format` | Prettier over `src/` |
+| Docs | `npm run docs` | Generate JSDoc API reference |

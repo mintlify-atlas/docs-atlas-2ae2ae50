@@ -1,0 +1,208 @@
+---
+title: usePaymentCheckout
+description: Manages the full checkout flow — loading cart items, shipping addresses, saved payment cards, and processing the final purchase.
+---
+
+## Overview
+
+`usePaymentCheckout` orchestrates every step of the payment process in S-mart. It loads the items to purchase (either from the cart or a "Buy Now" query parameter), fetches the selected shipping address, retrieves the user's saved credit cards, and processes the final transaction — including stock updates, sale registration, and cart cleanup.
+
+Internally it uses [`useCreditCardFormatters`](/api/use-credit-card-formatters) for card validation and calls Supabase directly for all persistence operations.
+
+## Import
+
+```javascript
+import { usePaymentCheckout } from '@/composables/Payment/usePaymentCheckout.js'
+```
+
+## Parameters
+
+<ParamField path="route" type="RouteLocationNormalizedLoaded" required>
+  The current Vue Router route object. Used to read the `buyNowId`, `qty`, and `direccionId` query parameters.
+</ParamField>
+
+<ParamField path="authStore" type="object" required>
+  The Pinia `useAuthStore` instance. Provides the authenticated user's `id` and profile.
+</ParamField>
+
+<ParamField path="cartStore" type="object" required>
+  The Pinia `useCartStore` instance. Provides `items` and the `removeProductsByIds` method.
+</ParamField>
+
+<ParamField path="ventasStore" type="object" required>
+  The Pinia `useVentasStore` instance. Provides `crearVentaEnLinea` for registering the transaction.
+</ParamField>
+
+## Returned State
+
+<ResponseField name="itemsParaComprar" type="Ref<object[]>">
+  The array of items to be purchased. Populated by `initializeCheckout` from either the `buyNowId` query parameter or the cart store. Each item includes product fields plus a normalized `cantidad` and `precio`.
+</ResponseField>
+
+<ResponseField name="direccionSeleccionada" type="Ref<object | null>">
+  The shipping address selected by the user. Loaded from the `direcciones` table using the `direccionId` query parameter.
+</ResponseField>
+
+<ResponseField name="tarjetasGuardadas" type="Ref<object[]>">
+  The list of credit cards saved by the authenticated user. Each entry contains `id`, `titular`, `numero_tarjeta`, and `fecha_vencimiento`.
+</ResponseField>
+
+<ResponseField name="loading" type="Ref<boolean>">
+  `true` while any async operation (initialization, card save/delete, or payment processing) is in progress.
+</ResponseField>
+
+<ResponseField name="error" type="Ref<string | null>">
+  Holds a human-readable error message if any operation fails, or `null` when there is no error.
+</ResponseField>
+
+## Returned Computed
+
+<ResponseField name="checkoutTotal" type="ComputedRef<number>">
+  The sum of `precio * cantidad` for every item in `itemsParaComprar`. Reads `precio` first, falling back to `precio_venta`.
+</ResponseField>
+
+## Returned Functions
+
+### `initializeCheckout()`
+
+Loads the shipping address first, then concurrently fetches saved cards and checkout items. Sets `loading` and `error` throughout.
+
+```typescript
+function initializeCheckout(): Promise<void>
+```
+
+<Note>
+  If no `buyNowId` query param is present the function reads items from `cartStore.items`. If the cart is empty it sets `error` and returns early.
+</Note>
+
+---
+
+### `guardarNuevaTarjeta(nuevaTarjeta)`
+
+Validates card data using `useCreditCardFormatters`, inserts a new row into the `tarjetas` table, and refreshes `tarjetasGuardadas`.
+
+```typescript
+function guardarNuevaTarjeta(nuevaTarjeta: {
+  numero: string
+  vencimiento: string
+  cvv: string
+  titular: string
+}): Promise<object | null>
+```
+
+<ParamField path="nuevaTarjeta.numero" type="string" required>
+  Raw card number string. Must contain exactly 16 digits (non-digit characters are stripped before validation).
+</ParamField>
+
+<ParamField path="nuevaTarjeta.vencimiento" type="string" required>
+  Expiry date in `MM/YY` format. Must be a future date.
+</ParamField>
+
+<ParamField path="nuevaTarjeta.cvv" type="string" required>
+  Card verification value. Must be 3 or 4 digits.
+</ParamField>
+
+<ParamField path="nuevaTarjeta.titular" type="string" required>
+  Cardholder name as it appears on the card.
+</ParamField>
+
+**Returns** the newly inserted card object, or `null` if validation fails or a database error occurs.
+
+---
+
+### `eliminarTarjeta(cardId)`
+
+Deletes the card with the given ID from Supabase and removes it from the local `tarjetasGuardadas` ref.
+
+```typescript
+function eliminarTarjeta(cardId: number | string): Promise<boolean>
+```
+
+<ParamField path="cardId" type="number | string" required>
+  The primary key of the card record to delete.
+</ParamField>
+
+**Returns** `true` on success, `false` if an error occurs.
+
+---
+
+### `procesarPago(tarjeta, cvv)`
+
+Executes the full payment pipeline: simulates the charge, decrements stock via the `actualizar_stock_multi` RPC, registers the sale through `ventasStore.crearVentaEnLinea`, and clears purchased items from the cart.
+
+```typescript
+function procesarPago(
+  tarjeta: object,
+  cvv: string
+): Promise<{
+  purchaseDataForTicket: object
+  detallesCompraParaExito: object
+} | null>
+```
+
+<ParamField path="tarjeta" type="object" required>
+  A card object from `tarjetasGuardadas`. Must have `numero_tarjeta` and `numero_tarjeta_display` fields.
+</ParamField>
+
+<ParamField path="cvv" type="string" required>
+  The CVV entered by the user for the selected card. Must be at least 3 characters.
+</ParamField>
+
+**Returns** an object on success:
+
+<ResponseField name="purchaseDataForTicket" type="object">
+  Normalized purchase data ready to pass to [`useTicketGenerator`](/api/use-ticket-generator). Includes `id`, `fecha`, `items`, `subtotal`, `discount`, `total`, and `paymentMethod`.
+</ResponseField>
+
+<ResponseField name="detallesCompraParaExito" type="object">
+  Summary data for the order success page. Includes `items`, `total`, `direccion`, `metodoPago`, and `ticketId`.
+</ResponseField>
+
+Returns `null` if the card is missing, the CVV is too short, stock cannot be updated, or the sale registration fails.
+
+## Usage Example
+
+```javascript
+<script setup>
+import { usePaymentCheckout } from '@/composables/Payment/usePaymentCheckout.js'
+import { useTicketGenerator } from '@/composables/Payment/useTicketGenerator.js'
+import { useRoute } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { useCartStore } from '@/stores/cart'
+import { useVentasStore } from '@/stores/ventas'
+import { ref, onMounted } from 'vue'
+
+const route = useRoute()
+const authStore = useAuthStore()
+const cartStore = useCartStore()
+const ventasStore = useVentasStore()
+
+const {
+  itemsParaComprar,
+  direccionSeleccionada,
+  tarjetasGuardadas,
+  loading,
+  error,
+  checkoutTotal,
+  initializeCheckout,
+  guardarNuevaTarjeta,
+  eliminarTarjeta,
+  procesarPago,
+} = usePaymentCheckout(route, authStore, cartStore, ventasStore)
+
+const { generatePdf } = useTicketGenerator()
+
+const selectedCard = ref(null)
+const cvv = ref('')
+
+onMounted(() => initializeCheckout())
+
+async function handlePay() {
+  const result = await procesarPago(selectedCard.value, cvv.value)
+  if (result) {
+    await generatePdf(result.purchaseDataForTicket)
+    // Navigate to success page using result.detallesCompraParaExito
+  }
+}
+</script>
+```

@@ -1,0 +1,122 @@
+---
+title: "Cart & Checkout"
+description: "Multi-step checkout flow from adding products to the cart through address selection, payment, and order confirmation."
+keywords: ["cart", "checkout", "carrito", "address", "domicilio", "purchase"]
+---
+
+S-mart's checkout is a multi-step flow that guides customers from product selection to order confirmation. The cart state is persisted to `localStorage` so it survives page refreshes and browser sessions.
+
+## Checkout flow
+
+<Steps>
+  <Step title="Browse and add products">
+    Visit `/tienda` to browse the product catalog. On any product listing or detail page, click **Add to cart** to add items to your cart. The cart icon in the header shows the current total item count.
+  </Step>
+  <Step title="Review your cart at /carrito">
+    Navigate to `/carrito` to review all cart items. You can update quantities, remove individual items, and see the subtotal. When ready, click **Continuar compra** to proceed.
+  </Step>
+  <Step title="Select or add a delivery address">
+    You are redirected to `/seleccionar-direccion` to pick an existing address from your account. If you have no saved addresses, you can add one at `/agregar-domicilio`. You can also edit an existing address before proceeding.
+  </Step>
+  <Step title="Pay by card at /pago-tarjeta">
+    After confirming an address, you are sent to `/pago-tarjeta` (with the `direccionId` query parameter). Choose a saved credit card or add a new one, then enter your CVV to confirm the payment.
+  </Step>
+  <Step title="Order confirmation at /compra-exitosa">
+    On successful payment, a PDF ticket is generated automatically and the browser navigates to `/compra-exitosa`. The page displays your order summary, shipping address, and payment method.
+  </Step>
+</Steps>
+
+### Route map
+
+```
+/tienda
+  └─ /producto/:id
+        └─ /carrito
+              └─ /seleccionar-direccion  (or /agregar-domicilio)
+                    └─ /pago-tarjeta?direccionId=&[buyNowId=&qty=]
+                          └─ /compra-exitosa
+```
+
+<Tip>
+The **Buy now** button on a product detail page bypasses the cart entirely. It redirects directly to `/seleccionar-direccion?buyNowId={id}&qty={qty}`, so `usePaymentCheckout` fetches the product from Supabase instead of reading from the cart store.
+</Tip>
+
+## Cart store (`useCartStore`)
+
+The `useCartStore` Pinia store manages the entire cart state. It initializes by reading from `localStorage` so the cart is automatically restored on page load.
+
+### State
+
+| Property | Type | Description |
+|---|---|---|
+| `items` | `CartItem[]` | Array of all products currently in the cart |
+| `subtotal` | `ComputedRef<number>` | Sum of `precio × cantidad` for all items |
+| `totalItems` | `ComputedRef<number>` | Sum of all item quantities |
+
+### CartItem shape
+
+```typescript
+interface CartItem {
+  id: number           // Product ID
+  name: string         // Product name
+  precio: number       // Final price (discounted if applicable)
+  imagen_url: string | null
+  cantidad: number     // Quantity in cart
+  stock: number        // Available stock (used to cap quantity)
+  precio_venta: number // Original sale price
+  vendedor_id: string  // Seller UUID
+}
+```
+
+### Actions
+
+```javascript
+import { useCartStore } from '@/stores/cartStore'
+
+const cart = useCartStore()
+
+// Add a product (quantity defaults to 1, capped at available stock)
+cart.addProduct(product, quantity)
+
+// Change the quantity for an existing item
+// Setting quantity to 0 removes the item
+cart.updateQuantity(productId, newQuantity)
+
+// Remove a single product by ID
+cart.removeItem(productId)
+
+// Remove multiple products at once (used after checkout)
+cart.removeProductsByIds([id1, id2, id3])
+
+// Empty the entire cart
+cart.clearCart()
+```
+
+### Persistence
+
+All mutations call `saveCartToStorage()` internally, which serializes `items` to `localStorage` under the key `cartItems`. The store reads this key on creation via `loadCartFromStorage()`.
+
+<Warning>
+Quantity is always capped at the product's available stock. Attempting to add more units than are in stock silently caps the quantity at `stock`. If a product has no stock field, the limit is treated as unlimited (`Infinity`).
+</Warning>
+
+## Address management
+
+Addresses (domicilios) are stored in the `direcciones` table in Supabase and are associated with the authenticated user.
+
+| Route | Component | Purpose |
+|---|---|---|
+| `/seleccionar-direccion` | `SeleccionarDireccionView` | List saved addresses and select one for checkout |
+| `/agregar-domicilio` | `AgregarDomicilioView` | Form to add a new address |
+| `/editar-domicilio/:id` | `EditarDomicilioView` | Form to update an existing address |
+
+The selected address ID is passed as the `direccionId` query parameter to `/pago-tarjeta`, where `usePaymentCheckout` loads the full address record from Supabase.
+
+## Cart view layout
+
+The `/carrito` page (`CarritoView`) uses two shared components from the Cajero module:
+
+- **`ShoppingCart`** — renders the item list with quantity controls and remove buttons
+- **`PurchaseSummary`** — shows the subtotal, total, and the "Continuar compra" button
+
+On screens wider than 1024 px the layout splits into a 2:1 grid with the item list on the left and the summary sticky on the right.

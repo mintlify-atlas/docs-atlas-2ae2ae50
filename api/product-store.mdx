@@ -1,0 +1,195 @@
+---
+title: "useProductStore"
+description: "Product catalog and inventory management for S-mart. Loads products and categories from Supabase and handles local and remote stock operations."
+---
+
+## Import
+
+```javascript
+import { useProductStore } from '@/stores/products'
+```
+
+## Overview
+
+`useProductStore` owns the product catalog. It fetches raw rows from the `productos` table, maps them to a display-friendly `Product` shape (applying discount logic), and provides stock mutation helpers that keep the local state and the database in sync.
+
+---
+
+## Types
+
+### `Product`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `number` | Primary key of the product. |
+| `name` | `string` | Product display name (mapped from `nombre`). |
+| `price` | `string` | Formatted final price, e.g. `"$12.99"`. Reflects discount when applicable. |
+| `originalPrice` | `string \| null` | Formatted pre-discount price, e.g. `"$19.99"`. `null` when there is no active discount. |
+| `description` | `string` | Product description. |
+| `imageUrl` | `string` | URL of the product image. |
+| `precio` | `number` | Final price as a raw number (discount applied when active). |
+| `precioOriginal` | `number` | Original sale price as a raw number (`precio_venta`). |
+| `stock` | `number` | Current available stock quantity. |
+| `vendedor_id` | `string` | UUID of the seller who owns this product. |
+| `categoria` | `string` | Category name of the product. |
+
+### `Categoria`
+
+| Field | Type | Description |
+|---|---|---|
+| `nombre` | `string` | Category name. |
+| `descripcion` | `string` | Category description. |
+
+---
+
+## State
+
+<ResponseField name="products" type="Product[]">
+  The full list of products loaded from the database. Each entry is the mapped `Product` shape described above. Initially an empty array.
+</ResponseField>
+
+<ResponseField name="categorias" type="Categoria[]">
+  All product categories loaded from the `categoria` table, ordered alphabetically by name.
+</ResponseField>
+
+<ResponseField name="loading" type="boolean">
+  `true` while `fetchProducts()` is executing. Initialises to `true` so views can show a skeleton state on first render.
+</ResponseField>
+
+<ResponseField name="error" type="string | null">
+  Contains an error message string when a product fetch fails; `null` otherwise. Reset to `null` at the start of each `fetchProducts()` call.
+</ResponseField>
+
+---
+
+## Actions
+
+### `fetchProducts()`
+
+Loads all products from the `productos` table (ordered by `id` descending) and maps each row to the `Product` type. Applies discount logic: if `precio_descuento` is a positive number less than `precio_venta`, it becomes the active `price`/`precio` and the original sale price is surfaced as `originalPrice`/`precioOriginal`.
+
+**Returns:** `Promise<void>`
+
+<Note>
+  Discount logic applied during mapping:
+
+  ```javascript
+  const tieneDescuento =
+    p.precio_descuento &&
+    p.precio_descuento > 0 &&
+    p.precio_descuento < p.precio_venta
+  ```
+
+  When `tieneDescuento` is `true`, `price` shows the discounted amount and `originalPrice` shows the struck-through original. When `false`, `originalPrice` is `null`.
+</Note>
+
+---
+
+### `fetchCategorias()`
+
+Loads all rows from the `categoria` table, selecting `nombre` and `descripcion`, ordered alphabetically. Errors are logged to the console but do not set `error` state.
+
+**Returns:** `Promise<void>`
+
+---
+
+### `decreaseStock(productId, quantity)`
+
+Decrements the `stock` field of a product **in local state only**. Used for optimistic UI updates after a purchase is initiated.
+
+<ParamField path="productId" type="number" required>
+  The `id` of the product to update.
+</ParamField>
+
+<ParamField path="quantity" type="number" required>
+  The amount to subtract from the current stock value.
+</ParamField>
+
+**Returns:** `void`
+
+<Note>
+  This is a local-only mutation. Call `updateStockInDB()` afterward to persist the change to Supabase.
+</Note>
+
+---
+
+### `increaseStock(productId, quantity)`
+
+Increments the `stock` field of a product **in local state only**. Useful for rolling back stock on cart removal or order cancellation.
+
+<ParamField path="productId" type="number" required>
+  The `id` of the product to update.
+</ParamField>
+
+<ParamField path="quantity" type="number" required>
+  The amount to add to the current stock value.
+</ParamField>
+
+**Returns:** `void`
+
+---
+
+### `updateStockInDB(cartItems)`
+
+Persists the current local stock values for each product in `cartItems` to the `productos` table in Supabase. Executes all updates in parallel via `Promise.all`. Throws an alert and re-throws on any individual update failure.
+
+<ParamField path="cartItems" type="CartItem[]" required>
+  Array of cart items whose stock should be written to the database. Each item must have an `id` field matching a product in the local `products` state.
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+<Note>
+  Stock values written are taken from the current local state, not from `cartItems.cantidad`. Always call `decreaseStock()` for each item before calling `updateStockInDB()`.
+</Note>
+
+---
+
+## Usage Example
+
+```vue
+<script setup>
+import { onMounted } from 'vue'
+import { useProductStore } from '@/stores/products'
+
+const productStore = useProductStore()
+
+onMounted(async () => {
+  await Promise.all([
+    productStore.fetchProducts(),
+    productStore.fetchCategorias(),
+  ])
+})
+</script>
+
+<template>
+  <div v-if="productStore.loading">Loading products...</div>
+  <div v-else-if="productStore.error" class="error">{{ productStore.error }}</div>
+  <ul v-else>
+    <li v-for="p in productStore.products" :key="p.id">
+      <img :src="p.imageUrl" :alt="p.name" />
+      <strong>{{ p.name }}</strong>
+      <span>{{ p.price }}</span>
+      <s v-if="p.originalPrice">{{ p.originalPrice }}</s>
+      <span v-if="p.stock === 0" class="badge-out">Out of stock</span>
+    </li>
+  </ul>
+</template>
+```
+
+```javascript
+// After a successful checkout, persist stock changes
+import { useProductStore } from '@/stores/products'
+import { useCartStore } from '@/stores/cartStore'
+
+const productStore = useProductStore()
+const cartStore = useCartStore()
+
+// 1. Decrease local stock for each cart item
+for (const item of cartStore.items) {
+  productStore.decreaseStock(item.id, item.cantidad)
+}
+
+// 2. Persist all changes to the database in one go
+await productStore.updateStockInDB(cartStore.items)
+```

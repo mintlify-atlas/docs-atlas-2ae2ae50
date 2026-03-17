@@ -1,0 +1,156 @@
+---
+title: "useNotificationStore"
+description: "Stock alert notifications for S-mart administrators and sellers. Tracks out-of-stock and low-stock products with role-scoped queries."
+---
+
+## Import
+
+```javascript
+import { useNotificationStore } from '@/stores/notificationStore'
+```
+
+## Overview
+
+`useNotificationStore` surfaces inventory health alerts to privileged users. Administrators see alerts for all products across the platform; sellers see only alerts for products they own. The store uses a fixed threshold of **5 units** to classify low-stock items.
+
+---
+
+## Types
+
+### `StockAlertItem`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `number` | Product ID. |
+| `nombre` | `string` | Product name. |
+| `stock` | `number` | Current stock quantity. |
+| `vendedor_id` | `string` | UUID of the seller who owns this product. Used by admins to initiate seller contact. |
+
+---
+
+## Constants
+
+| Name | Value | Description |
+|---|---|---|
+| `LOW_STOCK_THRESHOLD` | `5` | Products with `0 < stock ≤ 5` are classified as low-stock. |
+
+---
+
+## State
+
+<ResponseField name="lowStockItems" type="StockAlertItem[]">
+  Products where `stock > 0` and `stock ≤ LOW_STOCK_THRESHOLD` (currently 5). Ordered by stock ascending so the most critical items appear first.
+</ResponseField>
+
+<ResponseField name="outOfStockItems" type="StockAlertItem[]">
+  Products where `stock = 0`. Ordered alphabetically by product name.
+</ResponseField>
+
+<ResponseField name="loading" type="boolean">
+  `true` while `fetchStockAlerts()` is executing. Initialises to `false`.
+</ResponseField>
+
+<ResponseField name="error" type="string | null">
+  A human-readable error message when the alert fetch fails; `null` when there is no error.
+</ResponseField>
+
+---
+
+## Computed
+
+<ResponseField name="lowStockCount" type="number">
+  The number of items in `lowStockItems`. Useful for badge counts.
+</ResponseField>
+
+<ResponseField name="outOfStockCount" type="number">
+  The number of items in `outOfStockItems`.
+</ResponseField>
+
+<ResponseField name="totalAlertCount" type="number">
+  `lowStockCount + outOfStockCount`. Use this for a unified notification badge across both alert types.
+</ResponseField>
+
+---
+
+## Actions
+
+### `fetchStockAlerts()`
+
+Queries the `productos` table for out-of-stock and low-stock items. The query is automatically scoped by the current user's role:
+
+- **`vendedor`** — results are filtered to `vendedor_id = authStore.usuario.id`
+- **`administrador`** (and any other role) — no filter is applied; all products are returned
+
+Both queries run concurrently. Results are stored in `outOfStockItems` and `lowStockItems` respectively.
+
+**Returns:** `Promise<void>`
+
+<Note>
+  This action is a no-op when `loading` is already `true` or when `authStore.usuario` is `null`. It is safe to call from `onMounted` without debouncing.
+</Note>
+
+---
+
+### `clearAlerts()`
+
+Resets `lowStockItems`, `outOfStockItems`, `error`, and `loading` to their initial values. Call this on logout or when navigating away from the notifications view.
+
+**Returns:** `void`
+
+---
+
+## Usage Example
+
+```vue
+<!-- AdminNotifications.vue -->
+<script setup>
+import { onMounted } from 'vue'
+import { useNotificationStore } from '@/stores/notificationStore'
+
+const notifications = useNotificationStore()
+
+onMounted(() => {
+  notifications.fetchStockAlerts()
+})
+</script>
+
+<template>
+  <!-- Badge -->
+  <button class="notification-bell">
+    <span v-if="notifications.totalAlertCount > 0" class="badge">
+      {{ notifications.totalAlertCount }}
+    </span>
+  </button>
+
+  <!-- Alert panel -->
+  <div v-if="notifications.loading">Loading alerts...</div>
+  <div v-else-if="notifications.error" class="error">{{ notifications.error }}</div>
+  <div v-else>
+    <section v-if="notifications.outOfStockItems.length">
+      <h3>Out of Stock ({{ notifications.outOfStockCount }})</h3>
+      <ul>
+        <li v-for="item in notifications.outOfStockItems" :key="item.id">
+          {{ item.nombre }} — seller: {{ item.vendedor_id }}
+        </li>
+      </ul>
+    </section>
+
+    <section v-if="notifications.lowStockItems.length">
+      <h3>Low Stock ({{ notifications.lowStockCount }})</h3>
+      <ul>
+        <li v-for="item in notifications.lowStockItems" :key="item.id">
+          {{ item.nombre }} — {{ item.stock }} remaining
+        </li>
+      </ul>
+    </section>
+  </div>
+</template>
+```
+
+```javascript
+// Cleanup on logout
+import { useNotificationStore } from '@/stores/notificationStore'
+
+const notifications = useNotificationStore()
+notifications.clearAlerts()
+```

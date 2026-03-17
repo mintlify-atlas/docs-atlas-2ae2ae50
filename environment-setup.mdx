@@ -1,0 +1,91 @@
+---
+title: "Environment Setup"
+description: "Configure Supabase credentials and environment variables for the S-mart frontend and backend before running the application."
+---
+
+S-mart uses [Supabase](https://supabase.com/) for its database, authentication, and realtime features. Both the `Frontend` and `backend` services connect to Supabase independently, so each needs its own `.env` file with the appropriate credentials.
+
+<Warning>
+  Never commit `.env` files to version control. They contain secret keys that grant access to your Supabase project. Add `.env` to your `.gitignore` if it isn't already.
+</Warning>
+
+## Frontend environment variables
+
+Create a file named `.env` in the `Frontend/` directory with the following variables:
+
+```bash Frontend/.env
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_REDIRECT_URL=http://localhost:5173
+```
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `VITE_SUPABASE_URL` | Yes | The base URL of your Supabase project. |
+| `VITE_SUPABASE_ANON_KEY` | Yes | The public anon key for client-side Supabase access. |
+| `VITE_REDIRECT_URL` | No | The URL Supabase redirects to after OAuth or email login. Defaults to `window.location.origin` if not set. |
+
+<Tip>
+  Vite only exposes environment variables prefixed with `VITE_` to client-side code. Variables without this prefix are not available in the browser bundle.
+</Tip>
+
+## Backend environment variables
+
+Create a file named `.env` in the `backend/` directory. The backend connects to Supabase using the service role key, which grants elevated privileges and bypasses row-level security.
+
+```bash backend/.env
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+PORT=3000
+```
+
+<Warning>
+  The `SUPABASE_SERVICE_ROLE_KEY` bypasses all row-level security policies. Never expose it in client-side code or commit it to a public repository.
+</Warning>
+
+## Get your Supabase credentials
+
+<Steps>
+  <Step title="Create a Supabase account">
+    Go to [supabase.com](https://supabase.com/) and sign up for a free account if you don't already have one.
+  </Step>
+
+  <Step title="Create a new project">
+    From the Supabase dashboard, click **New project**. Choose an organization, give your project a name, set a database password, and select a region close to you. Wait for provisioning to complete (usually about 2 minutes).
+  </Step>
+
+  <Step title="Find your project URL and keys">
+    In your project dashboard, navigate to **Settings → API**.
+
+    - **Project URL** — copy this value into `VITE_SUPABASE_URL` (frontend) and `SUPABASE_URL` (backend).
+    - **Project API keys → `anon` `public`** — copy this into `VITE_SUPABASE_ANON_KEY`.
+    - **Project API keys → `service_role`** — copy this into `SUPABASE_SERVICE_ROLE_KEY` (backend only).
+  </Step>
+
+  <Step title="Create the .env files">
+    Create `Frontend/.env` and `backend/.env` using the values you copied, following the templates shown above.
+
+    <Tip>
+      If the repository includes `.env.example` files in either directory, use them as templates: copy the file to `.env` and fill in your actual values.
+    </Tip>
+  </Step>
+
+  <Step title="Verify the connection">
+    Start both servers following the [Quickstart](/quickstart) guide. If the credentials are correct, the login page will load and authentication requests will succeed. If you see errors about a missing Supabase URL or key, double-check that your `.env` files are saved in the correct directories and that the variable names match exactly.
+  </Step>
+</Steps>
+
+## Project structure reference
+
+```
+S-mart/
+├── Frontend/
+│   ├── .env               ← VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+│   └── src/
+│       └── lib/
+│           └── supabase.js  ← Supabase client initialisation
+└── backend/
+    └── .env               ← SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+```
+
+The frontend Supabase client is initialised in `Frontend/src/lib/supabase.js` and exported as a singleton used throughout the application for auth and data queries.

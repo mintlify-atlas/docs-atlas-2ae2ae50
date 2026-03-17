@@ -1,0 +1,214 @@
+---
+title: useRole
+description: Role and permission utilities for S-mart. Exposes computed flags for each user role, flexible role-checking functions, and auth guards that redirect unauthenticated or unauthorized users.
+---
+
+## Overview
+
+`useRole` wraps `useAuthStore` to provide a clean, declarative API for role-based access control in Vue components and route guards. It covers five roles — `Admin`, `Vendedor`, `Cliente`, `Cajero`, and `Invitado` — and offers both granular per-role computed properties and generic `hasRole`/`requireRole` helpers.
+
+## Import
+
+```javascript
+import { useRole } from '@/composables/useRole.js'
+```
+
+## Returned State
+
+<ResponseField name="isAuthenticated" type="ComputedRef<boolean>">
+  `true` when `authStore.usuario` is non-null (i.e. a user session exists).
+</ResponseField>
+
+<ResponseField name="currentRole" type="ComputedRef<string | null>">
+  The current user's role string as stored in `authStore.rolUsuario`, or `null` when unauthenticated.
+</ResponseField>
+
+## Role Flags
+
+These computed properties read directly from the corresponding `authStore` getters.
+
+<ResponseField name="isAdmin" type="ComputedRef<boolean>">
+  `true` if the user's role is `Admin`.
+</ResponseField>
+
+<ResponseField name="isVendedor" type="ComputedRef<boolean>">
+  `true` if the user's role is `Vendedor`.
+</ResponseField>
+
+<ResponseField name="isCliente" type="ComputedRef<boolean>">
+  `true` if the user's role is `Cliente`.
+</ResponseField>
+
+<ResponseField name="isCajero" type="ComputedRef<boolean>">
+  `true` if the user's role is `Cajero`.
+</ResponseField>
+
+<ResponseField name="isInvitado" type="ComputedRef<boolean>">
+  `true` when the user is not authenticated (guest state).
+</ResponseField>
+
+## Permission Flags
+
+<ResponseField name="canSell" type="ComputedRef<boolean>">
+  `true` if the user can create and manage product listings. Granted to `Vendedor` and `Admin`.
+</ResponseField>
+
+<ResponseField name="canManageUsers" type="ComputedRef<boolean>">
+  `true` if the user can manage other user accounts. Granted to `Admin` only.
+</ResponseField>
+
+<ResponseField name="canAccessAdmin" type="ComputedRef<boolean>">
+  `true` if the user can access the admin panel. Granted to `Admin` only.
+</ResponseField>
+
+<ResponseField name="canBuy" type="ComputedRef<boolean>">
+  `true` if the user can place orders. Granted to `Cliente`, `Vendedor`, and `Admin`.
+</ResponseField>
+
+## Returned Functions
+
+### `hasRole(roles)`
+
+Checks whether the current user has at least one of the specified roles. Accepts a single role string or an array.
+
+```typescript
+function hasRole(roles: string | string[]): boolean
+```
+
+<ParamField path="roles" type="string | string[]" required>
+  A single role string (e.g. `'Admin'`) or an array of role strings (e.g. `['Admin', 'Vendedor']`).
+</ParamField>
+
+**Returns** `true` if `authStore.rolUsuario` is included in the provided roles.
+
+```javascript
+hasRole('Admin')                  // true if user is Admin
+hasRole(['Admin', 'Vendedor'])    // true if user is Admin OR Vendedor
+```
+
+---
+
+### `hasAnyRole(roles)`
+
+Alias for `hasRole` implemented with `Array.some`. Checks if the user matches any role in the array.
+
+```typescript
+function hasAnyRole(roles: string | string[]): boolean
+```
+
+<ParamField path="roles" type="string | string[]" required>
+  Array of role strings to check against.
+</ParamField>
+
+---
+
+### `hasAllRoles(roles)`
+
+Checks that the user has **all** of the specified roles. Because a user can only have one role at a time, this effectively only returns `true` when the array contains exactly one role that matches.
+
+```typescript
+function hasAllRoles(roles: string | string[]): boolean
+```
+
+<ParamField path="roles" type="string | string[]" required>
+  Array of role strings that must all match.
+</ParamField>
+
+<Note>
+  Since each user holds a single role, `hasAllRoles(['Admin', 'Vendedor'])` will always return `false`. Use it for single-role assertions where code clarity is preferred over `hasRole`.
+</Note>
+
+---
+
+### `requireRole(roles, redirectTo?)`
+
+Imperative guard that enforces role access. If the user does not have the required role, shows a browser alert and redirects.
+
+```typescript
+function requireRole(
+  roles: string | string[],
+  redirectTo?: string
+): boolean
+```
+
+<ParamField path="roles" type="string | string[]" required>
+  The role or roles the user must have to proceed.
+</ParamField>
+
+<ParamField path="redirectTo" type="string">
+  Path to redirect to when access is denied. Defaults to `'/'`.
+</ParamField>
+
+**Returns** `true` if access is granted, `false` and triggers a redirect if not.
+
+---
+
+### `requireAuth(redirectTo?)`
+
+Imperative guard that enforces authentication. If the user is not logged in, saves the current route to `localStorage` under the key `authRedirect` and redirects to the login page.
+
+```typescript
+function requireAuth(redirectTo?: string): boolean
+```
+
+<ParamField path="redirectTo" type="string">
+  Path to redirect to when the user is unauthenticated. Defaults to `'/login'`.
+</ParamField>
+
+**Returns** `true` if the user is authenticated, `false` and triggers a redirect if not.
+
+<Note>
+  The saved `authRedirect` value in `localStorage` can be read after login to return the user to their originally requested page.
+</Note>
+
+## Usage Examples
+
+### Conditional rendering in a template
+
+```javascript
+<script setup>
+import { useRole } from '@/composables/useRole.js'
+
+const { isAdmin, isVendedor, canBuy, canSell } = useRole()
+</script>
+
+<template>
+  <nav>
+    <RouterLink v-if="canSell" to="/my-products">My Products</RouterLink>
+    <RouterLink v-if="canBuy" to="/checkout">Checkout</RouterLink>
+    <RouterLink v-if="isAdmin" to="/admin">Admin Panel</RouterLink>
+  </nav>
+</template>
+```
+
+### Guarding a component on mount
+
+```javascript
+<script setup>
+import { useRole } from '@/composables/useRole.js'
+import { onMounted } from 'vue'
+
+const { requireAuth, requireRole } = useRole()
+
+onMounted(() => {
+  // Redirect to /login if not authenticated
+  if (!requireAuth()) return
+
+  // Redirect to / if authenticated but not Admin
+  requireRole('Admin', '/')
+})
+</script>
+```
+
+### Flexible multi-role check
+
+```javascript
+<script setup>
+import { useRole } from '@/composables/useRole.js'
+
+const { hasRole, currentRole } = useRole()
+
+const canViewDashboard = hasRole(['Admin', 'Cajero'])
+console.log(`Current role: ${currentRole.value}`)
+</script>
+```

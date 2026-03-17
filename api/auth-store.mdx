@@ -1,0 +1,190 @@
+---
+title: "useAuthStore"
+description: "Authentication and user profile management for S-mart. Wraps Supabase Auth and the `usuarios` database table into a single reactive store."
+---
+
+## Import
+
+```javascript
+import { useAuthStore } from '@/stores/auth'
+```
+
+## Overview
+
+`useAuthStore` is the central Pinia store for session management. It initialises the Supabase session on app boot, keeps the reactive user/profile state in sync with auth events (`SIGNED_IN`, `SIGNED_OUT`, `TOKEN_REFRESHED`), and exposes role-based computed helpers used throughout the application for route guards and conditional rendering.
+
+---
+
+## State
+
+<ResponseField name="usuario" type="SupabaseUser | null">
+  The raw Supabase `User` object for the currently authenticated user. `null` when no session is active.
+</ResponseField>
+
+<ResponseField name="perfil" type="PerfilUsuario | null">
+  The extended user profile fetched from the `usuarios` table. `null` when unauthenticated or while loading.
+
+  <Expandable title="PerfilUsuario properties">
+    <ResponseField name="id" type="string">
+      UUID that matches the Supabase Auth user ID.
+    </ResponseField>
+    <ResponseField name="email" type="string">
+      The user's email address.
+    </ResponseField>
+    <ResponseField name="rol" type="'administrador' | 'vendedor' | 'cliente' | 'cajero' | 'invitado'">
+      The user's role in the system. Defaults to `'cliente'` when a profile is auto-created.
+    </ResponseField>
+    <ResponseField name="nombre" type="string | null">
+      The user's display name.
+    </ResponseField>
+    <ResponseField name="foto_url" type="string | null">
+      URL of the user's profile picture.
+    </ResponseField>
+    <ResponseField name="suspendido" type="boolean">
+      Whether the account is suspended. A suspended user is blocked from performing operations.
+    </ResponseField>
+    <ResponseField name="cierre_code" type="string | null">
+      Cash-register closing code. Only populated for users with the `cajero` role; sourced from the `codigo_entrada_cajero` related table.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="loading" type="boolean">
+  `true` while an async operation (session init, profile fetch, sign-out) is in progress. Initialises to `true` so the app can gate rendering until the session is resolved.
+</ResponseField>
+
+<ResponseField name="initFinished" type="boolean">
+  `true` once `inicializarSesion()` has completed. Acts as a guard to ensure session initialisation runs only once per app lifecycle.
+</ResponseField>
+
+---
+
+## Computed
+
+<ResponseField name="rolUsuario" type="'administrador' | 'vendedor' | 'cliente' | 'cajero' | 'invitado' | null">
+  Shorthand for `perfil.rol`. Returns `null` when no profile is loaded.
+</ResponseField>
+
+<ResponseField name="esAdmin" type="boolean">
+  `true` when `rolUsuario === 'administrador'`.
+</ResponseField>
+
+<ResponseField name="esVendedor" type="boolean">
+  `true` when `rolUsuario === 'vendedor'`.
+</ResponseField>
+
+<ResponseField name="esCliente" type="boolean">
+  `true` when `rolUsuario === 'cliente'`.
+</ResponseField>
+
+<ResponseField name="esCajero" type="boolean">
+  `true` when `rolUsuario === 'cajero'`.
+</ResponseField>
+
+<ResponseField name="esInvitado" type="boolean">
+  `true` when `rolUsuario === 'invitado'`.
+</ResponseField>
+
+<ResponseField name="estaSuspendido" type="boolean">
+  `true` when `perfil.suspendido` is set. Falls back to `false` when no profile is loaded.
+</ResponseField>
+
+---
+
+## Actions
+
+### `setRouter(routerInstance)`
+
+Injects the Vue Router instance into the store so that actions like `cerrarSesion()` can perform programmatic navigation without importing the router directly.
+
+<ParamField path="routerInstance" type="Router" required>
+  The Vue Router instance obtained via `useRouter()` or the app-level router object.
+</ParamField>
+
+**Returns:** `void`
+
+---
+
+### `cargarPerfil()`
+
+Fetches the authenticated user's profile from the `usuarios` table (including the joined `codigo_entrada_cajero` record). If no profile row exists for the current user, delegates to `crearPerfil()` to auto-create one.
+
+**Returns:** `Promise<void>`
+
+<Note>
+  This action is a no-op when `usuario` is `null`. On a Supabase error the profile is set to `null` to avoid stale data.
+</Note>
+
+---
+
+### `crearPerfil()`
+
+Inserts a new row in the `usuarios` table for the current Supabase Auth user. The new profile receives the `'cliente'` role by default and inherits `nombre` from `user_metadata` if available.
+
+**Returns:** `Promise<void>`
+
+<Note>
+  Called automatically by `cargarPerfil()` when no existing profile is found. You should rarely need to call this directly.
+</Note>
+
+---
+
+### `inicializarSesion()`
+
+Bootstraps the auth state on application startup. Calls `supabase.auth.getSession()` once, populates `usuario` and `perfil`, then sets `loading = false` and `initFinished = true`.
+
+**Returns:** `Promise<void>`
+
+<Note>
+  Protected by the `initFinished` flag — subsequent calls are no-ops. On a fatal error the state is cleared and the `sb-access-token` localStorage key is removed as an emergency cleanup.
+</Note>
+
+---
+
+### `cerrarSesion()`
+
+Signs the user out via `supabase.auth.signOut()`, clears `usuario` and `perfil`, removes the `authRedirect` key from `localStorage`, and redirects to `/login` using the injected router.
+
+**Returns:** `Promise<void>`
+
+---
+
+## Usage Example
+
+```javascript
+// main.js — inject the router before mounting
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import router from './router'
+import { useAuthStore } from '@/stores/auth'
+import App from './App.vue'
+
+const app = createApp(App)
+const pinia = createPinia()
+app.use(pinia)
+app.use(router)
+
+const authStore = useAuthStore()
+authStore.setRouter(router)
+await authStore.inicializarSesion()
+
+app.mount('#app')
+```
+
+```vue
+<!-- NavBar.vue — role-gated navigation links -->
+<script setup>
+import { useAuthStore } from '@/stores/auth'
+const auth = useAuthStore()
+</script>
+
+<template>
+  <nav>
+    <RouterLink v-if="auth.esAdmin" to="/admin">Admin Panel</RouterLink>
+    <RouterLink v-if="auth.esVendedor" to="/seller">My Products</RouterLink>
+    <RouterLink v-if="auth.esCajero" to="/pos">Point of Sale</RouterLink>
+    <span v-if="auth.estaSuspendido" class="badge-suspended">Account Suspended</span>
+    <button @click="auth.cerrarSesion()">Sign Out</button>
+  </nav>
+</template>
+```

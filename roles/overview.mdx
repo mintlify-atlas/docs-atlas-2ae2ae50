@@ -1,0 +1,106 @@
+---
+title: 'User Roles Overview'
+description: 'How S-mart uses role-based access control to manage what each user can see and do.'
+keywords: ['roles', 'access control', 'permissions', 'RBAC']
+---
+
+S-mart uses a role-based access control (RBAC) system built on top of Supabase. Every authenticated user is assigned exactly one role, stored in the `usuarios` table. The Vue Router reads the `requiresRoles` meta field on each route and blocks navigation for users who lack the required role.
+
+There are four named roles plus a default guest state for unauthenticated visitors:
+
+| Role | Internal value | Primary use |
+|---|---|---|
+| Customer | `cliente` | Browse and purchase products |
+| Seller | `vendedor` | List and manage products, process orders |
+| Cashier | `cajero` | Process in-store point-of-sale transactions |
+| Administrator | `administrador` | Full system access |
+
+## Role pages
+
+<CardGroup cols={2}>
+  <Card title="Customer" icon="user" href="/roles/customer">
+    Default role for all new registrations. Customers can browse the store, manage a cart, and track their orders.
+  </Card>
+  <Card title="Seller" icon="tag" href="/roles/seller">
+    Sellers list products, manage inventory, handle orders, and view sales reports.
+  </Card>
+  <Card title="Cashier" icon="cash-register" href="/roles/cashier">
+    Cashiers operate the in-store point-of-sale panel and generate end-of-day reports.
+  </Card>
+  <Card title="Administrator" icon="shield" href="/roles/administrator">
+    Administrators have unrestricted access to every route and can manage users, products, and categories.
+  </Card>
+</CardGroup>
+
+## Route access matrix
+
+The table below maps every protected route to the roles that can access it. Routes with no `requiresRoles` meta (e.g., `/`, `/tienda`, `/carrito`) are accessible to everyone including unauthenticated visitors.
+
+| Route | Customer | Seller | Cashier | Admin |
+|---|:---:|:---:|:---:|:---:|
+| `/` | Yes | Yes | Yes | Yes |
+| `/tienda` | Yes | Yes | Yes | Yes |
+| `/producto/:id` | Yes | Yes | Yes | Yes |
+| `/carrito` | Yes | Yes | Yes | Yes |
+| `/seleccionar-direccion` | Yes | Yes | Yes | Yes |
+| `/agregar-domicilio` | Yes | Yes | Yes | Yes |
+| `/pago-tarjeta` | Yes | — | — | — |
+| `/compra-exitosa` | Yes | — | — | — |
+| `/perfil` | Yes | Yes | Yes | Yes |
+| `/mis-chats` | Yes | Yes | Yes | Yes |
+| `/seguimiento` | Yes | Yes | Yes | Yes |
+| `/venta/:id` | Yes | Yes | Yes | Yes |
+| `/AgregarProducto` | — | Yes | — | Yes |
+| `/vendedor` | — | Yes | — | Yes |
+| `/EditarProducto/:id` | — | Yes | — | Yes |
+| `/VendedorProductos` | — | Yes | — | Yes |
+| `/vendedor/pedidos` | — | Yes | — | Yes |
+| `/reportes` | — | Yes | Yes | Yes |
+| `/cajero` | — | — | Yes | Yes |
+| `/admin` | — | — | — | Yes |
+| `/admin/productos` | — | — | — | Yes |
+| `/admin/categorias` | — | — | — | Yes |
+| `/admin/usuarios` | — | — | — | Yes |
+
+## How roles are enforced
+
+### Router guard
+
+The global `beforeEach` guard in `src/router/index.js` checks `to.meta.requiresRoles` on every navigation. If the current user's role is not in the array, they are redirected — admins go to `/admin`, sellers go to `/vendedor`, and everyone else goes to `/`.
+
+```javascript
+// src/router/index.js
+if (to.meta.requiresRoles && !to.meta.requiresRoles.includes(userRole)) {
+  if (authStore.esAdmin) return next({ name: 'admin' })
+  else if (authStore.esVendedor) return next({ name: 'vendedor' })
+  else return next({ name: 'home' })
+}
+```
+
+### RoleGuard component
+
+For conditional UI rendering within a page, use the `RoleGuard` component. It reads the current role from the auth store and only renders its slot if the role matches.
+
+```vue
+<RoleGuard :roles="['administrador', 'vendedor']">
+  <button>Manage Products</button>
+</RoleGuard>
+```
+
+### useRole composable
+
+For programmatic role checks inside `<script setup>` blocks, import `useRole` from `src/composables/useRole.js`.
+
+```javascript
+import { useRole } from '@/composables/useRole'
+
+const { isAdmin, canSell, hasRole } = useRole()
+```
+
+## Role assignment
+
+Roles are stored in the `rol` column of the `usuarios` table in Supabase. When a user registers for the first time, `crearPerfil()` in `src/stores/auth.js` automatically inserts a row with `rol: 'cliente'`.
+
+<Note>
+  Changing a user's role must be done directly in the Supabase `usuarios` table or via the admin panel at `/admin/usuarios`. There is no self-service role upgrade flow.
+</Note>

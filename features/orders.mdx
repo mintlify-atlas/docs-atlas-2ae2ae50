@@ -1,0 +1,142 @@
+---
+title: "Order Management"
+description: "Track order status from placement through delivery. Customers follow their shipments; sellers manage and update order states."
+keywords: ["orders", "pedidos", "seguimiento", "tracking", "venta", "shipping"]
+---
+
+S-mart tracks online orders from the moment a purchase is confirmed through to delivery. Customers can monitor their shipments, and sellers manage order fulfillment through a dedicated panel.
+
+## Order lifecycle
+
+<Steps>
+  <Step title="Placed">
+    The customer completes payment. A record is inserted into `venta_en_linea` with an initial `seguimiento` entry of `{ estado: 'Pendiente', fecha: <ISO timestamp> }`. The estimated delivery date is set 7 days from the purchase date.
+  </Step>
+  <Step title="Processing">
+    The seller reviews the incoming order in the Vendor Orders panel at `/vendedor/pedidos`. The status is updated to `'Procesando pedido'`.
+  </Step>
+  <Step title="In preparation">
+    The seller prepares the shipment. Status changes to `'En preparación'`.
+  </Step>
+  <Step title="Shipped">
+    The parcel is handed off to the carrier. Status progresses to `'En camino'` or `'En reparto'` depending on the stage.
+  </Step>
+  <Step title="Delivered">
+    The customer confirms receipt or the seller marks the order as complete. Status is set to `'Entregado'`.
+  </Step>
+</Steps>
+
+<Note>
+Status history is stored as a JSONB array in the `seguimiento` column. Each entry is `{ estado: string, fecha: ISO string }`. The most recent entry (sorted by date descending) represents the current status.
+</Note>
+
+## Customer-facing routes
+
+| Route | View | Purpose |
+|---|---|---|
+| `/seguimiento` | `SeguimientoEnvioView` | List all of the customer's orders with current status |
+| `/venta/:id` | `DetalleVentaView` | Full order detail: products, shipping address, status history |
+
+## Seller-facing route
+
+| Route | View | Access |
+|---|---|---|
+| `/vendedor/pedidos` | `VendedorPedidosView` | `vendedor`, `administrador` |
+
+### Vendor orders panel
+
+The `VendedorPedidosView` component provides a dashboard for sellers to manage all incoming orders.
+
+**Statistics cards** at the top show real-time counts by status:
+
+<Columns cols={3}>
+  <Card title="Total" icon="star">
+    All orders assigned to the seller.
+  </Card>
+  <Card title="Processing" icon="clock">
+    Orders in `'Procesando pedido'` state.
+  </Card>
+  <Card title="In preparation" icon="box">
+    Orders in `'En preparación'` state.
+  </Card>
+  <Card title="In transit" icon="truck">
+    Orders in `'En camino'` or `'En reparto'`.
+  </Card>
+  <Card title="Delivered" icon="circle-check">
+    Orders in `'Entregado'` state.
+  </Card>
+  <Card title="Cancelled" icon="circle-xmark">
+    Orders in `'Cancelado'` state.
+  </Card>
+</Columns>
+
+Sellers can filter the order list by status using a dropdown. Clicking **Gestionar Pedido** on a card navigates to the `detalle-venta` route for that order.
+
+## Ventas store (`useVentasStore`)
+
+The `useVentasStore` Pinia store handles creating sales records for both online and POS channels.
+
+```javascript
+import { useVentasStore } from '@/stores/ventas'
+
+const ventasStore = useVentasStore()
+```
+
+### `crearVentaEnLinea(itemsDelCarrito, metodoPago, direccionId)`
+
+Creates a single unified sale record in the `venta_en_linea` table:
+
+```javascript
+const ventasData = await ventasStore.crearVentaEnLinea(
+  cartItems,     // CartItem[] from useCartStore
+  'Tarjeta Visa (•••• 4242)',
+  direccionId    // number — ID of the selected address
+)
+```
+
+The function:
+1. Calculates the estimated delivery date (7 days from today)
+2. Maps cart items to `{ producto_id, nombre, cantidad, precio_unitario, imagen_url }`
+3. Calculates `monto_total` from all items
+4. Inserts a single record into `venta_en_linea` with initial `seguimiento: [{ estado: 'Pendiente', fecha: ... }]`
+5. Returns the inserted data array
+
+### `crearVentaPOS(productos, total, metodoPago)`
+
+Creates a POS sale record in the `purchase_history` table:
+
+```javascript
+await ventasStore.crearVentaPOS(
+  productsArray,   // mapped cart items
+  totalAmount,     // number
+  'Efectivo'       // payment method string
+)
+```
+
+### `setUltimaVenta(detalles)` / `ultimaVentaDetalles`
+
+After a successful online payment, `procesarPago` in `usePaymentCheckout` calls `setUltimaVenta` to store the order summary in the Pinia store. The `/compra-exitosa` page reads `ultimaVentaDetalles` to render the confirmation screen.
+
+```javascript
+ventasStore.setUltimaVenta({
+  items, total, direccion, metodoPago, ticketId
+})
+
+// On the success page:
+const detalles = ventasStore.ultimaVentaDetalles
+```
+
+## Order data model (`venta_en_linea`)
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `uuid` | Unique order identifier |
+| `cliente_id` | `uuid` | Authenticated customer |
+| `vendedor_id` | `uuid` | Reference seller (first product's seller) |
+| `productos` | `jsonb` | Array of `{ producto_id, nombre, cantidad, precio_unitario, imagen_url }` |
+| `monto_total` | `numeric` | Total order value |
+| `metodo_pago` | `text` | Payment method description |
+| `direccion_id` | `integer` | Foreign key to `direcciones` |
+| `fecha_estimada_entrega` | `date` | Estimated delivery date |
+| `seguimiento` | `jsonb` | Array of `{ estado, fecha }` tracking entries |
+| `creado_en` | `timestamptz` | Record creation timestamp |

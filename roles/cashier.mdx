@@ -1,0 +1,107 @@
+---
+title: 'Cashier Role'
+description: 'How cashiers use the S-mart point-of-sale panel to process in-store transactions and generate daily reports.'
+keywords: ['cashier', 'cajero', 'point of sale', 'POS', 'cierre de caja', 'reports']
+---
+
+The **cashier** role (`cajero`) provides access to the in-store point-of-sale (POS) panel. Cashiers process walk-in customer purchases, apply discount coupons, print receipts, perform end-of-day cash register closures, and generate daily sales reports.
+
+## Capabilities
+
+- Search and select products for an in-store sale
+- Adjust quantities and remove items from the active cart
+- Apply discount coupons validated against the `cupones` table
+- Process payment by cash, card, or other configured methods
+- Generate a PDF receipt (ticket) per transaction
+- View a live purchase history for the current session
+- Perform a **cierre de caja** (cash register closure) secured by a 4-digit personal code
+- Generate a daily sales report PDF for their own transactions
+- Access shipment tracking and order detail views
+- Manage their own profile and participate in chats
+
+## Available routes
+
+| Route | Description |
+|---|---|
+| `/cajero` | POS panel (`requiresRoles: ['cajero', 'administrador']`) |
+| `/reportes` | Sales reports |
+| `/perfil` | User profile |
+| `/mis-chats` | Support chats |
+| `/seguimiento` | Shipment tracking |
+| `/venta/:id` | Individual order detail |
+
+## The cashier panel
+
+The POS interface at `/cajero` (`CajeroView.vue`) is divided into two columns:
+
+**Left column**
+- **Product Selector** — search and add products to the active cart
+- **Purchase History** — the last 20 transactions fetched from the `purchase_history` table
+
+**Right column**
+- **Shopping Cart** — current transaction items with quantity controls
+- **Purchase Summary** — subtotal, discount, total, coupon input, and payment method selector
+- **Cierre de Caja** button — triggers an end-of-day closure
+- **Generate Daily Report** button — produces a detailed PDF of the day's sales
+
+## Cashier access code
+
+Every cashier is assigned a 4-digit personal security code stored in the `codigo_entrada_cajero` table. This code is joined into the user profile at load time:
+
+```javascript
+// src/stores/auth.js — cargarPerfil()
+const { data } = await supabase
+  .from('usuarios')
+  .select(`*, codigo_entrada_cajero ( codigo )`)
+  .eq('id', usuario.value.id)
+  .maybeSingle()
+
+perfil.value.cierre_code = data.codigo_entrada_cajero?.codigo ?? null
+```
+
+The code is exposed on the profile as `perfil.cierre_code` and is required to:
+
+- Perform a **cierre de caja** (4-digit verification modal)
+- Delete a transaction from the purchase history (same 4-digit code)
+
+<Note>
+  The cashier access code is stored in the separate `codigo_entrada_cajero` table, not directly on the `usuarios` row. An administrator must set this code before the cashier can perform closures or deletions. If `cierre_code` is `null`, those actions are blocked with an alert prompting the cashier to contact an administrator.
+</Note>
+
+## Processing a sale
+
+<Steps>
+  <Step title="Select products">
+    Use the Product Selector to search the catalog and add items to the cart. The store's live stock is decremented locally as items are added.
+  </Step>
+  <Step title="Apply a coupon (optional)">
+    Enter a coupon code in the Purchase Summary panel. The code is validated against the `cupones` table. Both percentage and fixed-amount discounts are supported, and per-product coupons are also recognized.
+  </Step>
+  <Step title="Choose a payment method">
+    Select cash, card, or another configured payment method from the dropdown.
+  </Step>
+  <Step title="Complete checkout">
+    Click **Checkout**. The sale is saved to the `purchase_history` table, stock is updated in `productos`, and a PDF receipt is downloaded automatically.
+  </Step>
+</Steps>
+
+## Cierre de caja
+
+At end of day, click **Hacer Cierre de Caja**. A modal prompts for the cashier's 4-digit `cierre_code`. On confirmation, the purchase history is cleared from the screen. A separate **Generate Daily Report** action (secured with a fixed 5-digit code) produces a multi-page PDF of all transactions processed by that cashier for the current day.
+
+## Checking cashier role programmatically
+
+```javascript
+import { useRole } from '@/composables/useRole'
+
+const { isCajero } = useRole()
+// isCajero.value — true only for 'cajero' role
+```
+
+```javascript
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
+// authStore.esCajero — computed boolean
+// authStore.perfil.cierre_code — the cashier's 4-digit security code
+```

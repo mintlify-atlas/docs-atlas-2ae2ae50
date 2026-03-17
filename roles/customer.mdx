@@ -1,0 +1,95 @@
+---
+title: 'Customer Role'
+description: 'Everything a customer can do in S-mart: browsing, checkout, order tracking, and more.'
+keywords: ['customer', 'cliente', 'shopping', 'checkout', 'orders']
+---
+
+The **customer** role (`cliente`) is the default role assigned to every new user. Customers interact with the public-facing storefront: they browse products, manage a shopping cart, complete purchases, track deliveries, and chat with support.
+
+## Capabilities
+
+- Browse the product catalog and view individual product detail pages
+- Add items to a cart and adjust quantities
+- Save and select delivery addresses
+- Complete checkout with card payment
+- View order history and track shipment status
+- Open and participate in support chats
+- Manage their own profile (name, photo)
+
+## Available routes
+
+| Route | Description |
+|---|---|
+| `/` | Home page |
+| `/tienda` | Full product catalog |
+| `/producto/:id` | Individual product detail |
+| `/carrito` | Shopping cart |
+| `/seleccionar-direccion` | Choose a saved delivery address |
+| `/agregar-domicilio` | Add a new delivery address |
+| `/editar-domicilio/:id` | Edit a saved address |
+| `/pago-tarjeta` | Card payment screen |
+| `/compra-exitosa` | Post-purchase confirmation |
+| `/perfil` | User profile |
+| `/mis-chats` | Customer support chats |
+| `/seguimiento` | Shipment tracking |
+| `/venta/:id` | Individual order detail |
+
+Customers cannot access seller, cashier, or admin routes. Attempting to navigate to a restricted route redirects them to `/`.
+
+## Registration and role assignment
+
+When a user signs up through the Supabase Auth flow, `crearPerfil()` in `src/stores/auth.js` is called automatically if no existing profile is found. It inserts a new row in the `usuarios` table with `rol: 'cliente'`.
+
+```javascript
+// src/stores/auth.js — crearPerfil()
+await supabase.from('usuarios').insert({
+  id: usuario.value.id,
+  email: usuario.value.email,
+  rol: 'cliente',
+  nombre: usuario.value.user_metadata?.nombre || null,
+  foto_url: null,
+})
+```
+
+No manual intervention is needed. Every new signup starts as a customer.
+
+## Shopping flow
+
+<Steps>
+  <Step title="Browse the catalog">
+    Navigate to `/tienda`. Products can be filtered by category. Click any product card to open the detail page at `/producto/:id`.
+  </Step>
+  <Step title="Add to cart">
+    On the product detail page, select a quantity and click **Add to Cart**. The cart persists across sessions. View the cart at `/carrito`.
+  </Step>
+  <Step title="Enter a delivery address">
+    During checkout, select a previously saved address at `/seleccionar-direccion` or add a new one at `/agregar-domicilio`.
+  </Step>
+  <Step title="Complete payment">
+    Proceed to `/pago-tarjeta` and enter card details to finalize the order. A confirmation screen is shown at `/compra-exitosa`.
+  </Step>
+  <Step title="Track your order">
+    After purchase, go to `/seguimiento` to monitor the shipment status, or view full order details at `/venta/:id`.
+  </Step>
+</Steps>
+
+## Checking customer role programmatically
+
+Use the `useRole` composable or the `useAuthStore` directly:
+
+```javascript
+import { useRole } from '@/composables/useRole'
+
+const { isCliente, canBuy } = useRole()
+
+// isCliente.value — true only for 'cliente' role
+// canBuy.value    — true for 'cliente', 'vendedor', and 'administrador'
+```
+
+To restrict a UI element to customers only, use `RoleGuard`:
+
+```vue
+<RoleGuard :roles="['cliente']">
+  <CheckoutButton />
+</RoleGuard>
+```

@@ -1,0 +1,86 @@
+---
+title: 'Seller Role'
+description: 'What sellers can do in S-mart: listing products, managing inventory, processing orders, and viewing reports.'
+keywords: ['seller', 'vendedor', 'products', 'inventory', 'orders', 'reports']
+---
+
+The **seller** role (`vendedor`) grants access to the product management and order management panels. Sellers are responsible for listing new products, maintaining inventory, fulfilling orders, and reviewing their own sales reports.
+
+## Capabilities
+
+- Add new products to the catalog with images, pricing, and stock levels
+- Edit existing product details (name, description, price, stock, category)
+- View and manage their product inventory
+- Process and update customer orders
+- View sales reports and analytics
+- Manage their own profile and participate in chats
+
+## Available routes
+
+| Route | Description |
+|---|---|
+| `/AgregarProducto` | Add a new product (`requiresRoles: ['vendedor', 'administrador']`) |
+| `/vendedor` | Seller dashboard / product list |
+| `/EditarProducto/:id` | Edit an existing product |
+| `/VendedorProductos` | Full list of the seller's products |
+| `/vendedor/pedidos` | Order management panel |
+| `/reportes` | Sales reports |
+| `/perfil` | User profile |
+| `/mis-chats` | Support chats |
+| `/seguimiento` | Shipment tracking |
+| `/venta/:id` | Individual order detail |
+
+<Note>
+  Sellers also have access to `/reportes`, which is shared with cashiers and administrators. This allows sellers to monitor their own sales performance without requiring admin-level access.
+</Note>
+
+## Adding a product
+
+<Steps>
+  <Step title="Open the add product form">
+    Navigate to `/AgregarProducto`. The form is rendered by `VenderView.vue`.
+  </Step>
+  <Step title="Fill in product details">
+    Enter the product name, SKU/code, description, category (loaded from the `categoria` table in Supabase), stock quantity, sale price, and an optional discounted price.
+  </Step>
+  <Step title="Upload a product image">
+    Click the image upload area and select a PNG or JPG file (up to 10 MB). A preview is shown before submission. Images are uploaded to Cloudinary via `subirImagenCloudinary()`.
+  </Step>
+  <Step title="Submit the form">
+    Click **Register product**. The product is inserted into the `productos` table in Supabase and you are redirected to `/VendedorProductos`.
+  </Step>
+</Steps>
+
+## Editing a product
+
+From `/VendedorProductos`, click the edit action on any product row. This navigates to `/EditarProducto/:id`, where all product fields can be updated. The same image upload flow applies if the image needs replacing.
+
+## Managing orders
+
+The `/vendedor/pedidos` view lists orders associated with the seller's products. From here, sellers can update the fulfillment status of each order.
+
+## Route meta
+
+Seller routes use `requiresRoles: ['vendedor', 'administrador']`. Administrators can access all seller routes. If a user without either role attempts to navigate to a seller route, the global `beforeEach` guard redirects them based on their own role.
+
+```javascript
+// src/router/index.js
+{
+  path: '/AgregarProducto',
+  meta: {
+    requiresAuth: true,
+    requiresRoles: ['vendedor', 'administrador'],
+  },
+}
+```
+
+## Checking seller role programmatically
+
+```javascript
+import { useRole } from '@/composables/useRole'
+
+const { isVendedor, canSell } = useRole()
+
+// isVendedor.value — true only for 'vendedor' role
+// canSell.value    — true for both 'vendedor' and 'administrador'
+```

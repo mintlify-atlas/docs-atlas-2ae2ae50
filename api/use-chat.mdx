@@ -1,0 +1,235 @@
+---
+title: useChat
+description: Real-time chat composable backed by Supabase. Manages conversations and messages between customers and sellers, with live updates via Supabase Realtime Postgres changes.
+---
+
+## Overview
+
+`useChat` provides all the state and functions needed to build a product inquiry chat between a customer and a seller. It persists conversations and messages in Supabase and subscribes to live `INSERT` events so new messages appear instantly without polling.
+
+The composable reads the current user from `useAuthStore` to scope queries and determine read/unread state.
+
+## Import
+
+```javascript
+import { useChat } from '@/composables/useChat.js'
+```
+
+## Returned State
+
+<ResponseField name="conversaciones" type="Ref<object[]>">
+  List of conversations the authenticated user is a party to (as either `cliente_id` or `vendedor_id`). Each object is a full `conversaciones` row joined with the related `producto`, `cliente`, and `vendedor` records.
+</ResponseField>
+
+<ResponseField name="mensajes" type="Ref<object[]>">
+  Messages belonging to the currently active conversation, ordered by `creado` ascending. Each message is joined with the sender's `usuarios` record (`id`, `nombre`, `foto_url`).
+</ResponseField>
+
+<ResponseField name="loading" type="Ref<boolean>">
+  `true` while any async operation (loading conversations, loading messages, or sending a message) is in progress.
+</ResponseField>
+
+<ResponseField name="error" type="Ref<Error | null>">
+  Contains the last error thrown by any operation, or `null` when there is no error.
+</ResponseField>
+
+## Returned Computed
+
+<ResponseField name="mensajesNoLeidos" type="ComputedRef<number>">
+  The count of conversations that have at least one unread message for the current user. Reads `cliente_leido` if the user is the customer, or `vendedor_leido` if they are the seller. Returns `0` when no user is authenticated.
+</ResponseField>
+
+## Returned Functions
+
+### `obtenerOCrearConversacion(productoId, vendedorId)`
+
+Looks up an existing conversation for the current user, `productoId`, and `vendedorId` triple. If none exists, creates a new one. This is the entry point for starting a chat from a product page.
+
+```typescript
+function obtenerOCrearConversacion(
+  productoId: string,
+  vendedorId: string
+): Promise<object>
+```
+
+<ParamField path="productoId" type="string" required>
+  The ID of the product being discussed.
+</ParamField>
+
+<ParamField path="vendedorId" type="string" required>
+  The ID of the product's seller.
+</ParamField>
+
+**Returns** the existing or newly created `conversaciones` row.
+
+**Throws** if the user is not authenticated or a database error occurs.
+
+---
+
+### `cargarConversaciones()`
+
+Fetches all conversations where the current user is either `cliente_id` or `vendedor_id`, sorted by most recently updated. Populates the `conversaciones` ref.
+
+```typescript
+function cargarConversaciones(): Promise<void>
+```
+
+<Note>
+  This function exits early and does nothing if `authStore.usuario` is `null`.
+</Note>
+
+---
+
+### `cargarMensajes(conversacionId)`
+
+Loads all messages for the given conversation into `mensajes`, ordered chronologically. Also calls `marcarComoLeido` automatically after loading.
+
+```typescript
+function cargarMensajes(conversacionId: string): Promise<void>
+```
+
+<ParamField path="conversacionId" type="string" required>
+  The primary key of the conversation to load messages for.
+</ParamField>
+
+---
+
+### `enviarMensaje(conversacionId, contenido)`
+
+Inserts a new message row and appends it to the local `mensajes` array immediately.
+
+```typescript
+function enviarMensaje(
+  conversacionId: string,
+  contenido: string
+): Promise<object>
+```
+
+<ParamField path="conversacionId" type="string" required>
+  The ID of the conversation to send the message to.
+</ParamField>
+
+<ParamField path="contenido" type="string" required>
+  The message body. Whitespace is trimmed before insertion. Throws if the trimmed value is empty.
+</ParamField>
+
+**Returns** the newly inserted message object (joined with sender profile).
+
+**Throws** if the user is unauthenticated or the message content is blank.
+
+---
+
+### `marcarComoLeido(conversacionId)`
+
+Marks a conversation as read for the current user. Updates `cliente_leido` or `vendedor_leido` on the `conversaciones` row depending on the user's role in the conversation, then marks all messages from other users as `leido = true`.
+
+```typescript
+function marcarComoLeido(conversacionId: string): Promise<void>
+```
+
+<ParamField path="conversacionId" type="string" required>
+  The ID of the conversation to mark as read.
+</ParamField>
+
+<Note>
+  This function is called automatically by `cargarMensajes`. You only need to call it manually when marking a conversation read without loading its messages (e.g. from a conversation list view).
+</Note>
+
+---
+
+### `suscribirseAMensajes(conversacionId, callback)`
+
+Opens a Supabase Realtime channel that listens for `INSERT` events on the `mensajes` table filtered to the given conversation. When a new message arrives, fetches the full record (with sender profile) and invokes `callback`.
+
+```typescript
+function suscribirseAMensajes(
+  conversacionId: string,
+  callback: (message: object) => void
+): () => void
+```
+
+<ParamField path="conversacionId" type="string" required>
+  The conversation to subscribe to.
+</ParamField>
+
+<ParamField path="callback" type="(message: object) => void" required>
+  Function called with the complete message object each time a new message arrives.
+</ParamField>
+
+**Returns** an unsubscribe function. Call it in `onUnmounted` to remove the Realtime channel.
+
+---
+
+### `suscribirseAConversaciones(callback)`
+
+Opens a Supabase Realtime channel that listens for any change (`INSERT`, `UPDATE`, `DELETE`) on the `conversaciones` table. On each event it invokes `callback` and also calls `cargarConversaciones` to refresh the local list.
+
+```typescript
+function suscribirseAConversaciones(
+  callback: (payload: object) => void
+): () => void
+```
+
+<ParamField path="callback" type="(payload: object) => void" required>
+  Function called with the raw Realtime payload on each conversation change.
+</ParamField>
+
+**Returns** an unsubscribe function. Returns a no-op `() => {}` if no user is authenticated.
+
+## Usage Example
+
+```javascript
+<script setup>
+import { useChat } from '@/composables/useChat.js'
+import { ref, onMounted, onUnmounted } from 'vue'
+
+const {
+  conversaciones,
+  mensajes,
+  loading,
+  error,
+  mensajesNoLeidos,
+  cargarConversaciones,
+  cargarMensajes,
+  enviarMensaje,
+  suscribirseAMensajes,
+  suscribirseAConversaciones,
+} = useChat()
+
+const activeConversationId = ref(null)
+const newMessage = ref('')
+let unsubMessages = null
+let unsubConversations = null
+
+onMounted(async () => {
+  await cargarConversaciones()
+
+  // Subscribe to conversation list updates
+  unsubConversations = suscribirseAConversaciones(() => {
+    console.log('Conversation list updated')
+  })
+})
+
+onUnmounted(() => {
+  unsubMessages?.()
+  unsubConversations?.()
+})
+
+async function openConversation(id) {
+  activeConversationId.value = id
+  await cargarMensajes(id)
+
+  // Tear down previous subscription before opening a new one
+  unsubMessages?.()
+  unsubMessages = suscribirseAMensajes(id, (msg) => {
+    mensajes.value.push(msg)
+  })
+}
+
+async function send() {
+  if (!newMessage.value.trim()) return
+  await enviarMensaje(activeConversationId.value, newMessage.value)
+  newMessage.value = ''
+}
+</script>
+```

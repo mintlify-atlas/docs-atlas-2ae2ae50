@@ -1,0 +1,54 @@
+---
+title: "Introduction"
+description: "S-mart is a full-stack online store platform built with Vue.js 3 and Supabase, supporting four distinct user roles with dedicated workflows and access controls."
+---
+
+S-mart is a modern, role-based online store built for teams that need to manage the full retail lifecycle — from product catalog and shopping cart to point-of-sale transactions, inventory management, and sales reporting. It is designed as a complete reference implementation for a Vue.js 3 + Supabase application.
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get S-mart running locally in under five minutes.
+  </Card>
+  <Card title="User roles" icon="users" href="/roles/overview">
+    Understand what each role can do and how access is controlled.
+  </Card>
+  <Card title="Core features" icon="store" href="/features/store">
+    Explore the product catalog, cart, payments, inventory, and more.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Learn how the frontend and backend are structured and connected.
+  </Card>
+</CardGroup>
+
+## User roles
+
+S-mart defines four roles. Each user is assigned exactly one role, which determines which views and actions are available to them.
+
+| Role | Responsibilities |
+| --- | --- |
+| **Customer** | Browses the product catalog, manages a shopping cart, completes checkout, and tracks orders. |
+| **Cashier** | Processes in-store point-of-sale transactions using a dedicated POS panel and access code. |
+| **Seller** | Manages their own product listings, stock levels, images, pricing, and order fulfillment. |
+| **Administrator** | Has full system access: manages users, products, categories, and global configuration. |
+
+## Tech stack
+
+S-mart is built on a modern JavaScript stack with a clear separation between frontend and backend.
+
+**Frontend**
+- [Vue.js 3](https://vuejs.org/) with the Composition API
+- [Pinia](https://pinia.vuejs.org/) for state management
+- [Vue Router 4](https://router.vuejs.org/) for client-side navigation
+- [Vite 7](https://vitejs.dev/) as the build tool (with HMR)
+- [`@supabase/supabase-js`](https://supabase.com/docs/reference/javascript) for auth and data access
+
+**Backend**
+- [Node.js](https://nodejs.org/) with [Express.js](https://expressjs.com/) REST API
+- [Supabase](https://supabase.com/) as the database, auth provider, and realtime layer
+
+**Key frontend libraries**
+- `vue-toastification` — in-app notifications
+- `jspdf` + `jspdf-autotable` — PDF report generation
+- `html2canvas` — receipt and ticket rendering

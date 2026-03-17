@@ -1,0 +1,126 @@
+---
+title: "Sales Reports"
+description: "Role-filtered sales reporting at /reportes for administrators, sellers, and cashiers, with PDF export via the cashier panel."
+keywords: ["reports", "reportes", "sales", "ventas", "PDF", "jsPDF", "administrador", "vendedor", "cajero"]
+---
+
+S-mart provides a unified sales report view accessible to staff roles. The report aggregates both online (`venta_en_linea`) and POS (`purchase_history`) transactions into a single table.
+
+## Access
+
+| Route | Allowed roles |
+|---|---|
+| `/reportes` | `administrador`, `vendedor`, `cajero` |
+
+Customers cannot access the reports view. The component waits for `authStore` to finish loading before checking the role, ensuring the guard works correctly on hard refreshes.
+
+<Warning>
+If a user navigates to `/reportes` without one of the three permitted roles, the data simply does not load — no redirect is performed by the component itself. Route-level guards in the router configuration enforce access control.
+</Warning>
+
+## Report content
+
+The `ReportesView` component calls the Supabase RPC function `get_reporte_ventas`, which returns a unified list of sales records for the current user's role. The data is processed client-side before display:
+
+```javascript
+// From ReportesView.vue
+const { data } = await supabase.rpc('get_reporte_ventas')
+
+const dataProcesada = data.map(venta => ({
+  ...venta,
+  // Supports both 'cantidad' (online) and 'quantity' (POS) field names
+  total_items: venta.productos_vendidos.reduce(
+    (acc, prod) => acc + (prod.cantidad || prod.quantity || 1), 0
+  ),
+  fecha_formateada: formatDate(venta.fecha_venta),
+  total_formateado: formatCurrency(venta.total_venta),
+})).sort((a, b) => new Date(b.fecha_venta) - new Date(a.fecha_venta))
+```
+
+### Table columns
+
+| Column | Shown to |
+|---|---|
+| Fecha | All roles |
+| Tipo de Venta | All roles — badge: **En Línea** or **POS** |
+| N° Items | All roles |
+| Monto Total | All roles |
+| Responsable | `administrador` only |
+
+The **Responsable** column shows `nombre_responsable` or `email_responsable` returned by the RPC. This lets administrators identify which cashier or seller was responsible for each transaction.
+
+### Master-detail rows
+
+Clicking any row in the table expands an inline detail section showing the individual products sold in that transaction:
+
+```
+Detalle de la Venta:
+  • 2x   Producto A   $150.00 c/u
+  • 1x   Producto B   $89.99 c/u
+```
+
+The detail section handles both `nombre`/`cantidad`/`precio_unitario` (online orders) and `name`/`quantity`/`price` (POS records) field names for backward compatibility.
+
+## Currency and date formatting
+
+The view uses two internal formatters:
+
+```javascript
+// Format a number as MXN currency
+const formatCurrency = (value) =>
+  new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+  }).format(value)
+// → "$1,200.50"
+
+// Format an ISO date string for display
+const formatDate = (dateString) =>
+  new Date(dateString).toLocaleString('es-MX', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+// → "15 mar 2024, 14:30"
+```
+
+## PDF export from the cashier panel
+
+The `ReportesView` page itself does not include a PDF export button — PDF export is handled from the cashier panel at `/cajero`.
+
+Cashiers have two PDF report actions:
+
+<Columns cols={2}>
+  <Card title="Reporte del día" icon="chart-bar">
+    Generates a detailed report of all transactions the cashier processed today. Requires entering the code `55555` in a security modal. Queries `purchase_history` filtered by `cashier_id` and the current date range.
+  </Card>
+  <Card title="Cierre de caja" icon="cash-register">
+    End-of-day close. Requires the cashier's personal 4-digit `cierre_code`. Clears the on-screen purchase history after confirming.
+  </Card>
+</Columns>
+
+### PDF generation pipeline
+
+Both cashier reports use the same `html2canvas` → `jsPDF` pipeline as the purchase ticket:
+
+1. Render the `CierreCajaReport` component off-screen with the report data
+2. Capture the rendered component as a canvas at 2× resolution
+3. Paginate the canvas into A4-sized pages for long reports
+4. Save as `reporte-caja-{YYYY-MM-DD}.pdf`
+
+```javascript
+// Multi-page pagination logic from CajeroView.vue
+const pdf = new jsPDF('p', 'px', 'a4')
+const pdfWidth = pdf.internal.pageSize.getWidth()
+const pdfHeightInPx = pdf.internal.pageSize.getHeight()
+
+// If the canvas is taller than one A4 page, slice it into pages
+if (pdfHeight > pdfHeightInPx) {
+  // ... slice canvas into page-height segments and call pdf.addPage() for each
+}
+
+pdf.save(`reporte-caja-${new Date().toISOString().split('T')[0]}.pdf`)
+```
+
+<Tip>
+For a programmatic report of all roles' sales, query the `get_reporte_ventas` RPC directly from Supabase. The RPC applies the appropriate row-level filters based on the authenticated user's role automatically.
+</Tip>

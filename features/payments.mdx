@@ -1,0 +1,180 @@
+---
+title: "Payments"
+description: "S-mart supports online card payments through the checkout flow and in-store POS transactions through the cashier panel."
+keywords: ["payments", "credit card", "cashier", "POS", "ticket", "PDF", "cajero"]
+---
+
+S-mart handles payments in two distinct contexts: an online card payment flow for customer purchases, and a cashier point-of-sale (POS) panel for in-store transactions.
+
+<Tabs>
+  <Tab title="Online payment">
+
+## Online card payment
+
+Customers pay at `/pago-tarjeta` after selecting a delivery address. The page is orchestrated by `PagoTarjetaView` and delegates all logic to the `usePaymentCheckout` composable.
+
+### Payment flow
+
+<Steps>
+  <Step title="Initialize checkout">
+    `initializeCheckout()` runs in parallel: it loads the selected delivery address, all saved cards for the user, and the items to purchase (from the cart or from `buyNowId` query param).
+  </Step>
+  <Step title="Select or add a card">
+    The user chooses a saved card from the `PaymentCardList` component, or clicks "Add new card" to open `PaymentCardForm`. Saving a new card calls `guardarNuevaTarjeta()`, which validates and inserts into the `tarjetas` table.
+  </Step>
+  <Step title="Enter CVV">
+    After selecting a card, `PaymentCvvInput` prompts for the 3- or 4-digit CVV. The CVV is never stored — it is only used in-memory for the current transaction.
+  </Step>
+  <Step title="Confirm payment">
+    `procesarPago(tarjeta, cvv)` runs the full payment sequence: stock update via Supabase RPC, sale record creation in `venta_en_linea`, cart cleanup, and PDF ticket generation. On success the user is redirected to `/compra-exitosa`.
+  </Step>
+</Steps>
+
+### `usePaymentCheckout` composable
+
+```javascript
+import { usePaymentCheckout } from '@/composables/Payment/usePaymentCheckout.js'
+
+const {
+  itemsParaComprar,       // Ref<object[]>  — items being purchased
+  direccionSeleccionada,  // Ref<object|null> — shipping address
+  tarjetasGuardadas,      // Ref<object[]>  — saved credit cards
+  loading,                // Ref<boolean>
+  error,                  // Ref<string|null>
+  checkoutTotal,          // ComputedRef<number> — sum of all item totals
+  initializeCheckout,     // () => Promise<void>
+  guardarNuevaTarjeta,    // (card) => Promise<object|null>
+  eliminarTarjeta,        // (cardId) => Promise<boolean>
+  procesarPago,           // (tarjeta, cvv) => Promise<result|null>
+} = usePaymentCheckout(route, authStore, cartStore, ventasStore)
+```
+
+`procesarPago` returns a result object used by the view to generate the PDF ticket and navigate to `/compra-exitosa`:
+
+```javascript
+{
+  purchaseDataForTicket: {
+    id, fecha, items, subtotal, discount, total, paymentMethod
+  },
+  detallesCompraParaExito: {
+    items, total, direccion, metodoPago, ticketId
+  }
+}
+```
+
+### Credit card formatters
+
+The `useCreditCardFormatters` composable provides input formatting and validation utilities used in `PaymentCardForm`:
+
+```javascript
+import { useCreditCardFormatters } from '@/composables/Payment/useCreditCardFormatters.js'
+
+const {
+  validateCardNumber,       // (number) => string|null  — returns clean 16-digit string or null
+  validateExpirationDate,   // (date) => boolean        — validates MM/YY or MM/YYYY, checks not expired
+  formatCardNumberInput,    // (value) => string        — formats as 'XXXX XXXX XXXX XXXX'
+  formatExpirationDateInput,// (value) => string        — formats as 'MM/YY'
+  getLastFour,              // (number) => string       — returns last 4 digits
+  getCardType,              // (number) => string       — 'Visa' | 'MasterCard' | 'Amex' | 'Tarjeta'
+  formatExpiryDisplay,      // (isoDate) => string      — ISO date → 'MM/YY' for display
+} = useCreditCardFormatters()
+```
+
+Card type is detected from the card number prefix:
+
+| Prefix | Card type |
+|---|---|
+| Starts with `4` | Visa |
+| Starts with `51`–`55` | MasterCard |
+| Starts with `34` or `37` | Amex |
+| Other | Tarjeta |
+
+  </Tab>
+  <Tab title="Cashier POS">
+
+## Cashier POS panel
+
+The cashier panel at `/cajero` (`CajeroView`) provides a full point-of-sale interface for processing in-store transactions without requiring customers to have an account.
+
+### Panel layout
+
+<Columns cols={2}>
+  <Card title="Product selector" icon="magnifying-glass">
+    `ProductSelector` lists all available products. The cashier clicks a product to add it to the active transaction cart.
+  </Card>
+  <Card title="Shopping cart" icon="cart-shopping">
+    `ShoppingCart` shows the current transaction items with quantity controls. Removing an item automatically restores its stock in the local `useProductStore`.
+  </Card>
+  <Card title="Purchase summary" icon="receipt">
+    `PurchaseSummary` shows subtotal, applied discount, and total. Supports coupon codes and exposes payment method selection (cash, card, transfer).
+  </Card>
+  <Card title="Purchase history" icon="clock-rotate-left">
+    `PurchaseHistory` shows the last 20 transactions for the current session. Cashiers can delete entries after entering their 4-digit security code.
+  </Card>
+</Columns>
+
+### Checkout process
+
+Calling `handleCheckout(method)` performs the following:
+
+1. Validates the cart is not empty and the user is authenticated
+2. Maps cart items to the `purchase_history` format with `nombre`, `cantidad`, `precio_unitario`
+3. Inserts a record into `purchase_history` with `cashier_id`, `products`, `total_amount`, and `payment_method`
+4. Increments coupon `usos_actuales` if a coupon was applied
+5. Calls `productStore.updateStockInDB(cartItems)` to persist stock changes
+6. Generates a PDF ticket via `generatePdf()`
+7. Clears the local cart, payment method, and discount state
+8. Refreshes purchase history from Supabase
+
+### Coupon support
+
+Cashiers can enter a coupon code at checkout. The system validates the code against the `cupones` table, checking:
+
+- Code exists and matches (case-insensitive)
+- Usage count has not reached `usos_maximos`
+- If `producto_id` is set, that product must be in the cart
+
+Discounts can be `porcentaje` (percentage of subtotal or product subtotal) or a fixed `valor` amount.
+
+### Security codes
+
+Three cashier operations require a 4-digit security code (`cierre_code` from `authStore.perfil`):
+
+- **Cierre de caja** — end-of-day close, clears the history display
+- **Eliminar venta** — removes a transaction record
+- **Reporte del día** — generates a daily sales report PDF (uses code `55555`)
+
+</Tab>
+</Tabs>
+
+## PDF ticket generation
+
+Both payment flows generate a PDF receipt using `useTicketGenerator`, which uses `jsPDF` and `html2canvas`.
+
+```javascript
+import { useTicketGenerator } from '@/composables/Payment/useTicketGenerator.js'
+
+const { ticketData, ticketRef, generatePdf } = useTicketGenerator()
+
+// ticketRef must be bound to the <Ticket> component via template ref:
+// <Ticket v-if="ticketData" :purchase="ticketData" ref="ticketRef" />
+
+await generatePdf(purchaseData)
+// purchaseData: { id, fecha, items, subtotal, discount, total, paymentMethod }
+```
+
+The function:
+
+1. Assigns `purchaseData` (enriched with the cashier name and formatted date) to `ticketData`
+2. Waits for the DOM to update (`nextTick`) so the `<Ticket>` component renders off-screen
+3. Captures the component as a PNG canvas at 2× scale via `html2canvas`
+4. Creates a `jsPDF` document sized exactly to the canvas and adds the image
+5. Saves the file as `ticket-smart-{id}.pdf`
+
+<Note>
+The `<Ticket>` component is rendered at `left: -9999px` so it is invisible but still measurable by `html2canvas`. The `ticketData` ref is reset to `null` after the PDF is saved to remove the component from the DOM.
+</Note>
+
+### Daily report PDF
+
+The cashier's **Generar Reporte del Día** button queries `purchase_history` filtered by `cashier_id` and today's date range, then renders a `CierreCajaReport` component and exports it as a multi-page A4 PDF using the same `html2canvas` → `jsPDF` pipeline.

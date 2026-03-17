@@ -1,80 +1,132 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get S-mart running locally with both the Vue.js frontend and Node.js backend in a few steps."
 ---
 
-## Get started in three steps
+This guide walks you through cloning the repository, installing dependencies, configuring environment variables, and starting both servers.
 
-Get your documentation site running locally and make your first customization.
+<Note>
+  S-mart requires **Node.js v20.19.0 or later** (v22.12.0+ recommended). Check your version with `node --version` before proceeding.
+</Note>
 
-### Step 1: Set up your local environment
+<Warning>
+  Both the `Frontend` and `backend` directories require a `.env` file with valid Supabase credentials before the application will work. Complete [Environment Setup](/environment-setup) before running the dev servers.
+</Warning>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+## Run S-mart locally
 
-### Step 2: Deploy your changes
+<Steps>
+  <Step title="Clone the repository">
+    Clone the S-mart repository from GitHub and move into the project directory.
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash
+    git clone https://github.com/Hiramrr/S-mart.git
+    cd S-mart
+    ```
+  </Step>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  <Step title="Install frontend dependencies">
+    Navigate to the `Frontend` directory and install the Node.js dependencies.
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    <CodeGroup>
 
-### Step 3: Go live
+    ```bash npm
+    cd Frontend
+    npm install
+    ```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```bash yarn
+    cd Frontend
+    yarn install
+    ```
+
+    </CodeGroup>
+  </Step>
+
+  <Step title="Install backend dependencies">
+    Open a second terminal, navigate to the `backend` directory, and install its dependencies.
+
+    <CodeGroup>
+
+    ```bash npm
+    cd backend
+    npm install
+    ```
+
+    ```bash yarn
+    cd backend
+    yarn install
+    ```
+
+    </CodeGroup>
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create `.env` files in both `Frontend/` and `backend/` with your Supabase credentials. See [Environment Setup](/environment-setup) for the exact variables and where to find them in the Supabase dashboard.
+  </Step>
+
+  <Step title="Start the backend server">
+    From the `backend` directory, start the Express API in development mode.
+
+    ```bash
+    npm run dev
+    ```
+
+    The backend will be available at **http://localhost:3000**.
+  </Step>
+
+  <Step title="Start the frontend dev server">
+    From the `Frontend` directory, start the Vite development server.
+
+    ```bash
+    npm run dev
+    ```
+
+    The frontend will be available at **http://localhost:5173** with hot module replacement enabled.
+  </Step>
+</Steps>
+
+## Verify the setup
+
+Once both servers are running:
+
+1. Open **http://localhost:5173** in your browser.
+2. You should see the S-mart login page.
+3. Sign up or log in with a Supabase-authenticated account.
+4. Your role (Customer, Seller, Cashier, or Administrator) determines which views are available after login.
+
+## Available scripts
+
+### Frontend (`Frontend/`)
+
+| Script | Description |
+| --- | --- |
+| `npm run dev` | Start the Vite development server with HMR |
+| `npm run build` | Compile the app for production |
+| `npm run preview` | Preview the production build locally |
+| `npm run lint` | Run ESLint and auto-fix issues |
+| `npm run format` | Format source files with Prettier |
+
+### Backend (`backend/`)
+
+| Script | Description |
+| --- | --- |
+| `npm run dev` | Start the Express server with nodemon (auto-restart on change) |
+| `npm start` | Start the Express server in production mode |
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Environment setup" icon="gear" href="/environment-setup">
+    Configure Supabase credentials for the frontend and backend.
+  </Card>
+  <Card title="User roles" icon="users" href="/roles/overview">
+    Learn what each role can access and how role-based routing works.
+  </Card>
+  <Card title="Core features" icon="store" href="/features/store">
+    Explore the product catalog, cart, payments, and inventory features.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Understand the project structure and how the layers connect.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
